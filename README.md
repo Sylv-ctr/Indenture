@@ -208,4 +208,14 @@ So if you do: **open an issue** and say how many agents, what they hand to each 
 broke last. Especially what broke last. A wrong answer about my own design is worth more than a
 polite one.
 
-MIT.
+## License
+
+Dual-licensed under either of
+
+- **MIT** ([LICENSE-MIT](LICENSE-MIT)) — if you are vendoring `indenture.py` into
+  your own tree, take this one; it fits in a file header.
+- **Apache License 2.0** ([LICENSE-APACHE](LICENSE-APACHE)) — if you are deploying
+  this as a dependency inside a company, take this one; it carries an explicit
+  patent grant, which is what legal will ask for.
+
+at your option. Contributions are accepted under the same dual terms.
