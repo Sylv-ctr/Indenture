@@ -15,7 +15,7 @@ classifiers = [
 ]
 dependencies = []
 
-# authors = [{ name = "<YOUR FULL NAME>", email = "<YOUR EMAIL>" }]
+authors = [{ name = "Sylvain Cartier" }]
 
 [project.optional-dependencies]
 dev = ["pytest>=7"]
