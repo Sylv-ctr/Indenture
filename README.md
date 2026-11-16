@@ -1,14 +1,37 @@
 # indenture
 
-**Chain of custody for multi-agent systems.** Who was allowed to hand work to whom, what they
-passed, and how to replay it from the point where they shouldn't have been.
+**Chain of custody for multi-agent systems.**
 
-Single file. Standard library only. Works with any agent framework, and from any language —
-`indenture check` answers with an exit code.
+Run a handful of AI agents that pass work to each other and you will eventually have a bad day:
+one agent hands the next something malformed, the next one does something destructive with it,
+and by the time anybody notices, the cause is three steps back. Indenture is what you ask
+*before* each handoff. It keeps a small rulebook — which agent may pass what to whom, and what
+nobody may touch without a human — and it answers yes or no. A "no" is enforced rather than
+suggested: the call does not run, and the agent is told why. Every answer is written down,
+refusals included, which is the half a log file never has: *what did my agents try to do that I
+did not want them to?*
+
+The other half is being able to go back. Entries are written once and never edited, and each one
+carries a fingerprint of the entry before it, so a journal that was altered after the fact says
+so instead of looking fine. That is what makes the record worth reading a week later: you can ask
+who last wrote a given file, and see the state of the world as it stood when an agent made a bad
+call — not the state now, after six more agents have run over it.
+
+**Concretely.** Your `backend` agent finishes some code and tries `kubectl apply`. A log would
+record that it did, and you would find out when production went down. Here the hook asks first,
+the rulebook says deployment is irreversible and needs a human, the command never runs, and the
+refusal is on the record. A week later your tests go red: `indenture blame contracts.md` says the
+`data` agent wrote that file and `backend` overwrote it four steps later, and `indenture replay
+--until 6` shows you what `qa` was looking at when it signed off.
+
+It is for anyone running more than two or three agents on real work — your own orchestrator,
+Claude Code subagents, CrewAI, LangGraph, a pile of shell scripts. One file, standard library
+only, nothing to deploy. `indenture check` answers with an exit code, so it works from any
+language.
 
 ---
 
-## The problem
+## The problem, in the words of people who have it
 
 Tracing tells you what your agents did. It does not tell you what they should have been allowed
 to do, and it does not help you get back.
