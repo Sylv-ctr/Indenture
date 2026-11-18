@@ -134,6 +134,78 @@ This is local context, not inferred causality.
 `indenture replay --until 6` prints the state as it stood at entry 6 — the state the agent
 actually saw, not the state you have now.
 
+## Writing the rulebook
+
+`indenture init` writes a starting policy to `.indenture/policy.json`. Edit it — it is the only
+configuration there is.
+
+```json
+{
+  "default": "deny",
+  "redact": ["api_key", "token", "password", "authorization"],
+  "actors": {
+    "architect": {"lane": "contained"},
+    "backend":   {"lane": "contained"},
+    "data":      {"lane": "wide"},
+    "qa":        {"lane": "contained"},
+    "deploy":    {"lane": "irreversible"}
+  },
+  "rules": [
+    {"from": "*", "to": "deploy", "allow": false,
+     "reason": "deployment is irreversible: ask the operator to run it"},
+    {"from": "architect", "to": "*", "kind": ["plan", "contract"], "allow": true},
+    {"from": ["backend", "data"], "to": "qa",
+     "kind": ["work", "review_request"], "allow": true}
+  ]
+}
+```
+
+**`actors`** — every agent that exists, under the name you call it by. An agent missing from this
+list is *unknown*: its handoffs are refused and its state writes are recorded with a flag.
+Listing nobody means nobody is known, not everybody.
+
+**`lane`** — how far that actor's mistakes reach. `contained` stays inside its own workspace,
+`wide` is visible outside but can be undone, `irreversible` cannot. The lane is recorded on every
+entry, and it is what you point at when you write the rule that refuses deployment. Nothing opens
+the irreversible lane on its own.
+
+**`rules`** — read top to bottom, and **the first rule that matches decides**. That is the whole
+mechanism, so put your refusals first: a permissive rule sitting above a restrictive one wins
+silently, and you will not notice until something ships.
+
+Each rule matches on `from`, `to` and `kind`. Each of the three takes a single name, a list of
+names, or `"*"` for any. An absent `kind` means any kind. A rule without `"allow": true`
+**refuses** — permission is never implied by a rule merely existing.
+
+**`kind`** — your own vocabulary for what is being handed over: `work`, `review_request`, `plan`,
+`rework`, whatever your agents actually do. Indenture never interprets it, it only matches on it.
+
+**`reason`** — this string is handed back to the agent when it is refused, so write it as an
+instruction to the agent, not as a note to yourself. *"deployment is irreversible: ask the
+operator to run it"* gives the model a next step. *"not allowed"* gives it a retry loop.
+
+**`default`** — what happens when no rule matches. It is `deny`, and there is deliberately no
+flag to invert it. If you want to be permissive, write an explicit last rule that says so, where
+the next person to read the file can see it.
+
+**`redact`** — keys replaced with `<redacted>` before anything is written, for the cases where
+you do ask Indenture to store a payload instead of only its fingerprint.
+
+### Start small
+
+Three actors and two rules is already a working policy. Add a rule the first time a handoff is
+refused that you actually wanted: the refusal is in the journal with both actors and the kind, so
+it tells you exactly which rule is missing.
+
+```console
+$ indenture log --denied
+   1 09:16:57 DENY  backend -> deploy  [work]  rules[0]  deployment is irreversible: ask the operator to run it
+   7 09:41:02 DENY  data -> qa  [schema]  default  no rule matched data -> qa (schema); default is deny
+```
+
+Entry 7 is the one to act on — `default` in the rule column means you never wrote a rule for
+that pair. Entry 1 is the policy working as intended.
+
 ## Install
 
 ```bash
