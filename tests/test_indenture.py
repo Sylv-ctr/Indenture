@@ -319,3 +319,39 @@ def test_hook_failure_to_parse_is_not_a_policy_denial(tmp_path: Path) -> None:
         env={"PATH": "/usr/bin:/bin", "INDENTURE_DIR": str(tmp_path / ".indenture")},
     )
     assert r.returncode == 1
+
+
+# --------------------------------------------------------------------------- #
+# Watched patterns — a default that cries wolf gets uninstalled
+# --------------------------------------------------------------------------- #
+@pytest.mark.parametrize("command", [
+    "rm -rf node_modules",
+    "rm -rf ./build",
+    "rm -rf dist",
+])
+def test_hook_allows_everyday_cleanup(tmp_path: Path, command: str) -> None:
+    _cli(tmp_path, "init")
+    assert _hook(tmp_path, command).returncode == 0, command
+
+
+@pytest.mark.parametrize("command", [
+    "rm -rf /",
+    "rm -rf ~/Documents",
+    "rm -rf /var/lib/postgresql",
+    "dd if=/dev/zero of=/dev/sda",
+])
+def test_hook_blocks_destruction_of_absolute_or_home_paths(tmp_path: Path, command: str) -> None:
+    _cli(tmp_path, "init")
+    assert _hook(tmp_path, command).returncode == 2, command
+
+
+def test_every_hook_target_exists_in_the_shipped_policy(tmp_path: Path) -> None:
+    """A target missing from the policy is refused as an unknown actor, which is
+    the right outcome reached for the wrong reason — and the journal then records
+    a misleading cause, which is worse in an audit tool than a wrong verdict."""
+    import examples.claude_code_hook as hook  # noqa: PLC0415
+
+    _cli(tmp_path, "init")
+    declared = Indenture(tmp_path / ".indenture").policy.actors
+    targets = {target for _pattern, target, _kind in hook.WATCHED}
+    assert targets <= set(declared), targets - set(declared)

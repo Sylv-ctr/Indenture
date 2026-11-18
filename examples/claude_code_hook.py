@@ -56,7 +56,11 @@ WATCHED: list[tuple[str, str, str]] = [
     (r"(docker\s+push|helm\s+(install|upgrade))\b", "deploy", "deployment"),
     (r"git\s+push\b", "deploy", "publication"),
     (r"(npm|pnpm|yarn)\s+publish\b", "deploy", "publication"),
-    (r"(rm\s+-rf|dd\s+if=)\b", "destructive", "destructive"),
+    # Only absolute or home-relative targets. `rm -rf node_modules` is a Tuesday;
+    # `rm -rf /` and `rm -rf ~/...` are the ones worth stopping. A default that
+    # blocks the former gets the whole hook uninstalled within an hour.
+    (r"rm\s+(-[a-zA-Z]*\s+)*-?[a-zA-Z]*r[a-zA-Z]*f?\s+(/|~|\$HOME)", "destructive", "destructive"),
+    (r"dd\s+if=", "destructive", "destructive"),
     (r"(psql|mysql|mongosh)\b", "data", "database"),
     (r"curl\b.*\|\s*(ba)?sh\b", "destructive", "remote-code"),
 ]
