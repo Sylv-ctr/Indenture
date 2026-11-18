@@ -238,6 +238,31 @@ A `PreToolUse` hook turns the policy into enforcement rather than a request: see
 most — a rule written in a prompt is a suggestion the model can ignore, and nothing records that
 it did. A denied call exits 2, Claude Code blocks it, and the reason goes back to the model.
 
+```bash
+mkdir -p .indenture && cp examples/policy-claude-code.json .indenture/policy.json
+```
+
+Then in `.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {"matcher": "Bash", "hooks": [{"type": "command",
+        "command": "INDENTURE_ACTOR=claude python3 examples/claude_code_hook.py"}]}
+    ]
+  }
+}
+```
+
+[`examples/policy-claude-code.json`](examples/policy-claude-code.json) is written for one
+developer and one session: the agent may `git push` — you review the diff anyway, and blocking
+it would make this unusable — but not deploy, destroy, or open a database. Loosen it where it
+annoys you; `indenture log --denied` tells you which rule is missing.
+
+If `INDENTURE_ACTOR` is unset the actor is `unknown`, and every watched command is refused. That
+is the correct direction to fail, but it will look like a bug if you forget the variable.
+
 ## Why the name
 
 A medieval indenture was a contract written twice on one sheet, then cut along a jagged line.

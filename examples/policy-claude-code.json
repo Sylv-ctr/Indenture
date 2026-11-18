@@ -1,0 +1,39 @@
+{
+  "_comment": "One developer, one Claude Code session. The agent may publish (you review the diff anyway) but may not deploy, destroy, or touch a database. Copy to .indenture/policy.json and loosen it where it annoys you — every refusal lands in the journal with the actors and the kind, so you always know which rule is missing.",
+
+  "default": "deny",
+
+  "redact": ["api_key", "token", "password", "authorization", "secret"],
+
+  "actors": {
+    "claude": { "lane": "contained" },
+    "human": { "lane": "irreversible" },
+    "deploy": { "lane": "irreversible" },
+    "destructive": { "lane": "irreversible" },
+    "data": { "lane": "wide" }
+  },
+
+  "rules": [
+    {
+      "_": "Refusals first — the first matching rule decides, so anything permissive above these would win silently.",
+      "from": "claude", "to": "destructive", "allow": false,
+      "reason": "this destroys data and cannot be undone. Show me the command and let me run it myself."
+    },
+    {
+      "from": "claude", "to": "deploy", "kind": "deployment", "allow": false,
+      "reason": "deploying is irreversible and I have not reviewed this yet. Tell me what you would deploy and why, and I will run it."
+    },
+    {
+      "from": "claude", "to": "data", "kind": "database", "allow": false,
+      "reason": "no direct database access. Write a migration or a script I can read first."
+    },
+    {
+      "_": "git push is fine: nothing reaches anyone without a review, and blocking it would make this unusable.",
+      "from": "claude", "to": "deploy", "kind": "publication", "allow": true
+    },
+    {
+      "_": "You are the operator. Nothing stops you.",
+      "from": "human", "to": "*", "allow": true
+    }
+  ]
+}
