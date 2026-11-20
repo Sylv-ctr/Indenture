@@ -119,7 +119,11 @@ form in §3.2 is.
 
   // both
   "payload_digest": "531a7dc44be00ab9",
-  "payload": { }                   // only when explicitly stored
+  "payload": { },                  // only when explicitly stored
+
+  // reserved — see §3.4. Never written by this version.
+  "principal": { },
+  "receipt": { }
 }
 ```
 
@@ -150,7 +154,43 @@ regardless of that opt-in.
 The payload digest is truncated to 16 hex characters. It identifies a payload; it is not the
 chain's integrity primitive, which is the full-length `hash`.
 
-### 3.4 `verify`
+### 3.4 Reserved fields: `principal` and `receipt`
+
+Two field names are reserved now and written by no implementation yet. They are declared here
+so that their **absence is interpretable forever**, which matters more than it sounds.
+
+**`principal` — on whose behalf.** An entry today says *actor `backend` did this*. But an actor
+is a string someone typed into a local file: nothing states who it was acting for, and nothing
+stops whoever can edit the file from choosing the name. `principal` will carry the identity the
+actor was exercising delegated authority for, and whether that identity was **verified** (a
+token issued by an external authority) or merely **declared** (a string). The vocabulary is
+that of a mandate: the principal grants the authority, the agent exercises it. An agent is an
+instrument, never a person.
+
+**`receipt` — proof a third party saw the entry.** The chain detects an edited, deleted or
+reordered entry. It does not detect the whole file being rewritten from scratch with every hash
+recomputed, which is why §3.5 says tamper-*evident* and not tamper-*proof*. A `receipt` is what
+an external service returns on receiving an entry — an acknowledgement held by somebody who is
+not the author. You can rewrite your own ledger; you cannot rewrite the other party's
+acknowledgement of it.
+
+**The rule that makes reserving them worthwhile:**
+
+> An entry without `principal` means the actor was **not attributed**. An entry without
+> `receipt` means the entry was **not anchored**. This holds for every entry ever written,
+> including every entry written before these fields existed.
+
+Without that sentence written down before the fields are used, a later reader cannot tell
+"the tool could not record this" from "there was nothing to record" — and in an audit tool,
+an uninterpretable silence is a defect.
+
+**On forward compatibility.** Adding a field later does *not* break existing journals: each
+entry's hash is computed over its own fields, so an old entry still verifies against itself.
+What a late addition breaks is the *meaning* of an absent field, which is what this section
+fixes. Recorded here because the opposite was asserted during design and turned out to be
+wrong.
+
+### 3.5 `verify`
 
 `verify` MUST detect, and MUST name the position of:
 
