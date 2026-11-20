@@ -28,7 +28,11 @@
       "reason": "no direct database access. Write a migration or a script I can read first."
     },
     {
-      "_": "git push is fine: nothing reaches anyone without a review, and blocking it would make this unusable.",
+      "from": "claude", "to": "deploy", "kind": "package-release", "allow": false,
+      "reason": "publishing a package is effectively irreversible — it cannot be unpublished after 72 hours. Tell me the version and what changed, and I will run it."
+    },
+    {
+      "_": "git push is fine: nothing reaches anyone without a review, and a revert undoes it. Blocking it would make this unusable.",
       "from": "claude", "to": "deploy", "kind": "publication", "allow": true
     },
     {

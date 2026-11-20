@@ -45,7 +45,11 @@ import re
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+# Both layouts have to work: this file inside the repo (indenture.py one level
+# up), and this file vendored next to a copied indenture.py. The advertised
+# install is `curl -O indenture.py`, so the vendored case is not the exotic one.
+_here = Path(__file__).resolve().parent
+sys.path[:0] = [str(_here), str(_here.parent)]
 from indenture import Indenture  # noqa: E402
 
 # Commands that are watched, mapped to the actor they are treated as handing
@@ -58,7 +62,9 @@ WATCHED: list[tuple[str, str, str]] = [
     (r"terraform\s+(apply|destroy)\b", "deploy", "infrastructure"),
     (r"(docker\s+push|helm\s+(install|upgrade))\b", "deploy", "deployment"),
     (r"git\s+push\b", "deploy", "publication"),
-    (r"(npm|pnpm|yarn)\s+publish\b", "deploy", "publication"),
+    # A package pushed to a registry cannot be unpublished after 72 hours, so it
+    # does not belong in the same bucket as `git push`, which a revert undoes.
+    (r"(npm|pnpm|yarn)\s+publish\b", "deploy", "package-release"),
     # Only absolute or home-relative targets. `rm -rf node_modules` is a Tuesday;
     # `rm -rf /` and `rm -rf ~/...` are the ones worth stopping. A default that
     # blocks the former gets the whole hook uninstalled within an hour.

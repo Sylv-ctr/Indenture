@@ -461,3 +461,18 @@ def test_no_actor_anywhere_is_unknown_and_refused(tmp_path: Path) -> None:
     )
     assert r.returncode == 2
     assert "unknown" in r.stderr
+
+
+def test_package_release_is_refused_but_git_push_is_not(tmp_path: Path) -> None:
+    """A published package cannot be unpublished after 72 hours; a pushed commit
+    is undone by a revert. Same actor, same target, different blast radius —
+    which is what `kind` exists to express."""
+    root = tmp_path / ".indenture"
+    root.mkdir()
+    (root / "policy.json").write_text(
+        (HERE / "examples" / "policy-claude-code.json").read_text())
+    (root / "journal.jsonl").touch()
+    assert _hook(tmp_path, "git push origin main", actor="claude", by_argv=True).returncode == 0
+    r = _hook(tmp_path, "npm publish", actor="claude", by_argv=True)
+    assert r.returncode == 2
+    assert "72 hours" in r.stderr
