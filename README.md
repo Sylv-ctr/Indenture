@@ -416,4 +416,7 @@ Dual-licensed under either of
   this as a dependency inside a company, take this one; it carries an explicit
   patent grant, which is what legal will ask for.
 
-at your option. Contributions are accepted under the same dual terms.
+at your option. Contributions are accepted under the same dual terms, with no separate agreement
+to sign — see [CONTRIBUTING.md](CONTRIBUTING.md). To report a vulnerability, use GitHub's private
+reporting rather than an issue: [SECURITY.md](SECURITY.md) says what is in scope and what is a
+documented limitation.
