@@ -15,15 +15,18 @@ Install (`.claude/settings.json`):
             "matcher": "Bash",
             "hooks": [
               {"type": "command",
-               "command": "python3 examples/claude_code_hook.py"}
+               "command": "python examples/claude_code_hook.py claude"}
             ]
           }
         ]
       }
     }
 
-Then `indenture init`, declare your actors in `.indenture/policy.json`, and set
-`INDENTURE_ACTOR` per agent.
+The actor name is the first argument. It is passed on the command line rather
+than through an environment variable because `VAR=value command` is Unix shell
+syntax: on Windows it is not valid, and the same settings.json has to work on
+both. `INDENTURE_ACTOR` still overrides it, for callers that prefer the
+environment.
 
 Behaviour:
   exit 0  — allowed, or the tool is not under policy. Claude Code proceeds.
@@ -93,7 +96,9 @@ def main() -> int:
         return 0
 
     target, kind = verdict
-    actor = os.environ.get("INDENTURE_ACTOR", "unknown")
+    # argv[1] first, so one settings.json works on Windows and Unix alike.
+    actor = os.environ.get("INDENTURE_ACTOR") or (
+        sys.argv[1] if len(sys.argv) > 1 else "unknown")
 
     ind = Indenture(os.environ.get("INDENTURE_DIR", ".indenture"))
     decision = ind.authorize(actor, target, kind=kind, payload={"command": command})

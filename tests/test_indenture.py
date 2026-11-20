@@ -273,13 +273,19 @@ def test_reason_is_on_stdout_so_the_model_can_read_it(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------- #
 # The hook — the claim that enforcement is real
 # --------------------------------------------------------------------------- #
-def _hook(tmp_path: Path, command: str, actor: str = "backend") -> subprocess.CompletedProcess:
+def _hook(tmp_path: Path, command: str, actor: str = "backend",
+          by_argv: bool = False) -> subprocess.CompletedProcess:
+    """Run the hook. by_argv passes the actor as a command-line argument, which
+    is the portable path: `VAR=value command` is not valid on Windows."""
+    argv = [sys.executable, str(HERE / "examples" / "claude_code_hook.py")]
+    env = {"PATH": "/usr/bin:/bin", "INDENTURE_DIR": str(tmp_path / ".indenture")}
+    if by_argv:
+        argv.append(actor)
+    else:
+        env["INDENTURE_ACTOR"] = actor
     return subprocess.run(
-        [sys.executable, str(HERE / "examples" / "claude_code_hook.py")],
-        input=json.dumps({"tool_name": "Bash", "tool_input": {"command": command}}),
-        capture_output=True, text=True,
-        env={"PATH": "/usr/bin:/bin", "INDENTURE_ACTOR": actor,
-             "INDENTURE_DIR": str(tmp_path / ".indenture")},
+        argv, input=json.dumps({"tool_name": "Bash", "tool_input": {"command": command}}),
+        capture_output=True, text=True, env=env,
     )
 
 
@@ -420,3 +426,38 @@ def test_absent_locking_warns_once_and_still_records(tmp_path: Path, capsys) -> 
     finally:
         ind_mod.LOCKING = saved
         ind_mod.Indenture._warned_unlocked = False
+
+
+def test_hook_takes_the_actor_from_argv(tmp_path: Path) -> None:
+    """One settings.json has to work on Windows and Unix, so the actor cannot
+    arrive through `VAR=value command` — that is Unix shell syntax only."""
+    _cli(tmp_path, "init")
+    r = _hook(tmp_path, "kubectl apply -f prod.yaml", actor="backend", by_argv=True)
+    assert r.returncode == 2
+    assert "backend -> deploy" in r.stderr
+
+
+def test_env_overrides_argv(tmp_path: Path) -> None:
+    _cli(tmp_path, "init")
+    argv = [sys.executable, str(HERE / "examples" / "claude_code_hook.py"), "ghost"]
+    r = subprocess.run(
+        argv, input=json.dumps({"tool_name": "Bash",
+                                "tool_input": {"command": "kubectl apply -f x.yaml"}}),
+        capture_output=True, text=True,
+        env={"PATH": "/usr/bin:/bin", "INDENTURE_ACTOR": "backend",
+             "INDENTURE_DIR": str(tmp_path / ".indenture")},
+    )
+    assert "backend -> deploy" in r.stderr, r.stderr
+
+
+def test_no_actor_anywhere_is_unknown_and_refused(tmp_path: Path) -> None:
+    _cli(tmp_path, "init")
+    r = subprocess.run(
+        [sys.executable, str(HERE / "examples" / "claude_code_hook.py")],
+        input=json.dumps({"tool_name": "Bash",
+                          "tool_input": {"command": "kubectl apply -f x.yaml"}}),
+        capture_output=True, text=True,
+        env={"PATH": "/usr/bin:/bin", "INDENTURE_DIR": str(tmp_path / ".indenture")},
+    )
+    assert r.returncode == 2
+    assert "unknown" in r.stderr

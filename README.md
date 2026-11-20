@@ -249,19 +249,28 @@ Then in `.claude/settings.json`:
   "hooks": {
     "PreToolUse": [
       {"matcher": "Bash", "hooks": [{"type": "command",
-        "command": "INDENTURE_ACTOR=claude python3 examples/claude_code_hook.py"}]}
+        "command": "python examples/claude_code_hook.py claude"}]}
     ]
   }
 }
 ```
+
+The actor is the argument. It is passed on the command line rather than through an environment
+variable because `VAR=value command` is Unix shell syntax — on Windows it is not valid, and the
+same `settings.json` has to work on both. `INDENTURE_ACTOR` still overrides it if you prefer
+the environment.
 
 [`examples/policy-claude-code.json`](examples/policy-claude-code.json) is written for one
 developer and one session: the agent may `git push` — you review the diff anyway, and blocking
 it would make this unusable — but not deploy, destroy, or open a database. Loosen it where it
 annoys you; `indenture log --denied` tells you which rule is missing.
 
-If `INDENTURE_ACTOR` is unset the actor is `unknown`, and every watched command is refused. That
-is the correct direction to fail, but it will look like a bug if you forget the variable.
+With no actor given at all, the actor is `unknown` and every watched command is refused. That is
+the correct direction to fail, but it looks like a bug if you forget the argument.
+
+**Windows.** The locking in `indenture.py` uses `msvcrt` there instead of `fcntl`. That path is
+written but has not been exercised on a real Windows machine — if you are the first, the
+concurrency behaviour is the thing to check, and an issue would be welcome.
 
 ## Why the name
 
