@@ -274,7 +274,7 @@ def test_reason_is_on_stdout_so_the_model_can_read_it(tmp_path: Path) -> None:
 # The hook — the claim that enforcement is real
 # --------------------------------------------------------------------------- #
 def _hook(tmp_path: Path, command: str, actor: str = "backend",
-          by_argv: bool = False) -> subprocess.CompletedProcess:
+          by_argv: bool = False, session: str = "s-1") -> subprocess.CompletedProcess:
     """Run the hook. by_argv passes the actor as a command-line argument, which
     is the portable path: `VAR=value command` is not valid on Windows."""
     argv = [sys.executable, str(HERE / "examples" / "claude_code_hook.py")]
@@ -284,7 +284,8 @@ def _hook(tmp_path: Path, command: str, actor: str = "backend",
     else:
         env["INDENTURE_ACTOR"] = actor
     return subprocess.run(
-        argv, input=json.dumps({"tool_name": "Bash", "tool_input": {"command": command}}),
+        argv, input=json.dumps({"tool_name": "Bash", "session_id": session,
+                                "tool_input": {"command": command}}),
         capture_output=True, text=True, env=env,
     )
 
@@ -303,12 +304,18 @@ def test_hook_allows_an_unwatched_command(tmp_path: Path) -> None:
     assert r.returncode == 0
 
 
-def test_hook_does_not_journal_unwatched_commands(tmp_path: Path) -> None:
+def test_hook_journals_unwatched_commands_once_per_session_and_never_again(
+        tmp_path: Path) -> None:
+    """Unwatched calls are not journaled individually — a journal that records
+    every `ls` is one nobody reads. The single exception is the attachment
+    entry, which is per session, not per call: without it an empty journal
+    cannot be told apart from a hook that never started."""
     _cli(tmp_path, "init")
     before = len(Indenture(tmp_path / ".indenture").entries())
-    _hook(tmp_path, "ls -la")
+    for _ in range(4):
+        _hook(tmp_path, "ls -la", session="s-quiet")
     after = len(Indenture(tmp_path / ".indenture").entries())
-    assert before == after
+    assert after == before + 1
 
 
 def test_hook_does_not_match_a_watched_word_inside_another_command(tmp_path: Path) -> None:
@@ -538,3 +545,57 @@ def test_front_end_deploys_are_watched(tmp_path: Path, command: str) -> None:
     irreversible command."""
     _cli(tmp_path, "init")
     assert _hook(tmp_path, command, actor="backend", by_argv=True).returncode == 2, command
+
+
+# --------------------------------------------------------------------------- #
+# attachment — a quiet journal must not be mistaken for a quiet agent
+# --------------------------------------------------------------------------- #
+def _notes(tmp_path: Path) -> list:
+    return [e for e in Indenture(tmp_path / ".indenture").entries()
+            if e.get("event") == "note"
+            and str(e.get("text", "")).startswith("hook attached")]
+
+
+def test_the_hook_records_that_it_ran_even_on_an_unwatched_command(tmp_path: Path) -> None:
+    """The case that exposed this: an agent ran greps and cats, nothing watched,
+    and the empty journal was read as 'nothing happened' when it could equally
+    have meant 'the hook never started'."""
+    _cli(tmp_path, "init")
+    r = _hook(tmp_path, "ls -la")
+    assert r.returncode == 0
+    assert len(_notes(tmp_path)) == 1
+
+
+def test_attachment_is_recorded_once_per_session(tmp_path: Path) -> None:
+    _cli(tmp_path, "init")
+    for _ in range(5):
+        _hook(tmp_path, "echo hello", session="s-same")
+    assert len(_notes(tmp_path)) == 1
+
+
+def test_a_new_session_records_again(tmp_path: Path) -> None:
+    _cli(tmp_path, "init")
+    _hook(tmp_path, "echo hello", session="s-one")
+    _hook(tmp_path, "echo hello", session="s-two")
+    assert len(_notes(tmp_path)) == 2
+
+
+def test_attachment_does_not_change_the_verdict(tmp_path: Path) -> None:
+    _cli(tmp_path, "init")
+    assert _hook(tmp_path, "kubectl apply -f prod.yaml").returncode == 2
+    assert _hook(tmp_path, "ls").returncode == 0
+
+
+def test_doctor_says_so_when_no_hook_ever_attached(tmp_path: Path) -> None:
+    _cli(tmp_path, "init")
+    _cli(tmp_path, "note", "written by hand, not by a hook")
+    r = _cli(tmp_path, "doctor")
+    assert "never recorded attaching" in r.stdout
+
+
+def test_doctor_reports_the_attachment(tmp_path: Path) -> None:
+    _cli(tmp_path, "init")
+    _hook(tmp_path, "ls")
+    r = _cli(tmp_path, "doctor")
+    assert "last attached" in r.stdout
+    assert r.returncode == 0

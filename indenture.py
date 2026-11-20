@@ -559,6 +559,16 @@ def _doctor(root: str) -> int:
               f"{'intact' if ok else str(len(why)) + ' problems'})")
         if not ok:
             problems.append("the existing journal does not verify")
+        attached = [e for e in ind.entries()
+                    if e.get("event") == E_NOTE
+                    and str(e.get("text", "")).startswith("hook attached")]
+        if attached:
+            last = attached[-1]
+            print(f"hook        last attached {last.get('ts')} — {last.get('text')}")
+        else:
+            print("hook        never recorded attaching. Either no hook is wired, or")
+            print("            it is not the bundled one. An empty or quiet journal")
+            print("            proves nothing about whether anything is enforcing.")
     else:
         print(f"journal     none yet at {ind.journal}")
         print("            If a hook is wired and you have run commands, an empty")

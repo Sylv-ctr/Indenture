@@ -249,6 +249,12 @@ was empty and silence meant nothing. Two consequences:
 - Run `indenture doctor` after wiring it up, and again if a journal looks suspiciously quiet.
   That is the command that would have caught the above in ten seconds.
 
+The same trap has a second floor. Unwatched commands are deliberately not journaled, so a
+session where the agent only read files leaves nothing behind — and *nothing behind* is exactly
+what a dead hook leaves too. So the hook writes one `hook attached` note per session, before it
+classifies anything, and `doctor` reports it. An empty journal is now a statement rather than a
+shrug. Add `.indenture/hook-session` to your `.gitignore`: it is local state, not record.
+
 ```console
 $ indenture doctor
 python      3.13.1 on Windows (AMD64)

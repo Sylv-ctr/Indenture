@@ -42,6 +42,10 @@ Behaviour:
 
 Tools that are not under policy are NOT journaled. A journal that records every
 unmonitored call is a journal nobody reads, and the signal disappears into it.
+The one exception is a single `hook attached` note per session, so that a quiet
+journal can be told apart from a hook that never started. It keeps the session
+id in `.indenture/hook-session`; that file is local state, not part of the
+record — gitignore it.
 """
 
 from __future__ import annotations
@@ -90,6 +94,36 @@ WATCHED: list[tuple[str, str, str]] = [
 ]
 
 
+SESSION_MARKER = "hook-session"
+
+
+def record_attachment(ind: Indenture, actor: str, session: str) -> None:
+    """Write one entry the first time the hook runs in a session.
+
+    Without this, a journal with nothing in it has two readings: the gate is
+    watching and the agent simply did nothing watched, or the gate never
+    started. Those are opposite facts and they looked identical — which is the
+    same defect as the fail-open, one layer up. One entry per session makes the
+    journal able to answer "was anything enforcing this?" and costs one small
+    file read per hook call.
+    """
+    marker = ind.root / SESSION_MARKER
+    try:
+        if marker.exists() and marker.read_text(encoding="utf-8").strip() == session:
+            return
+    except OSError:
+        pass
+    try:
+        ind.note(f"hook attached as '{actor}' (session {session[:12]}), "
+                 f"{len(WATCHED)} patterns watched", by=actor)
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text(session, encoding="utf-8")
+    except OSError:
+        # Journaling the attachment is diagnostics, not the decision. Never let
+        # it stop the authorization below from happening.
+        pass
+
+
 def classify(command: str) -> tuple[str, str] | None:
     """(target actor, kind) if this command is under policy, else None."""
     stripped = command.strip()
@@ -112,16 +146,20 @@ def main() -> int:
     if not command:
         return 0
 
+    # argv[1] first, so one settings.json works on Windows and Unix alike.
+    actor = os.environ.get("INDENTURE_ACTOR") or (
+        sys.argv[1] if len(sys.argv) > 1 else "unknown")
+    ind = Indenture(os.environ.get("INDENTURE_DIR", ".indenture"))
+
+    # Before classifying, not after: the point is to prove the gate ran, which
+    # matters most in the session where nothing watched ever happens.
+    record_attachment(ind, actor, str(event.get("session_id") or "no-session-id"))
+
     verdict = classify(command)
     if verdict is None:
         return 0
 
     target, kind = verdict
-    # argv[1] first, so one settings.json works on Windows and Unix alike.
-    actor = os.environ.get("INDENTURE_ACTOR") or (
-        sys.argv[1] if len(sys.argv) > 1 else "unknown")
-
-    ind = Indenture(os.environ.get("INDENTURE_DIR", ".indenture"))
     decision = ind.authorize(actor, target, kind=kind, payload={"command": command})
 
     if decision.allowed:
