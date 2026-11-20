@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
+# Copyright 2026 Sylvain Cartier
+# SPDX-License-Identifier: MIT OR Apache-2.0
 """
-indenture - chain of indenture for multi-agent systems.
+indenture - chain of custody for multi-agent systems.
 
 Tracing shows you the execution path. It does not tell you whether a handoff
 should have been allowed, and it does not let you replay from the point where it
@@ -57,7 +59,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 GENESIS = "0" * 64
 JOURNAL = "journal.jsonl"
@@ -588,7 +590,7 @@ def _doctor(root: str) -> int:
 def main(argv: list | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="indenture",
-        description="Chain of indenture for multi-agent systems: who was allowed "
+        description="Chain of custody for multi-agent systems: who was allowed "
                     "to hand off to whom, what they passed, and how to replay it.")
     p.add_argument("--dir", default=os.environ.get("INDENTURE_DIR", ".indenture"),
                    help="journal directory (default: .indenture)")

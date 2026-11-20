@@ -390,11 +390,11 @@ writers on different machines. Both are in [`docs/DESIGN.md` §7](docs/DESIGN.md
 
 ## Status
 
-v0.1. The API may change. The journal format and the exit codes are the parts intended to stay
+v0.1.1. The API may change. The journal format and the exit codes are the parts intended to stay
 stable — if you build on one thing, build on those.
 
 ```bash
-pip install -e ".[dev]" && pytest     # 62 tests, one per claim made above
+pip install -e ".[dev]" && pytest     # 64 tests, one per claim made above
 ```
 
 ## If you run more than three agents, I want to hear from you

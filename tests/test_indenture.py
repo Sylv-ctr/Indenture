@@ -599,3 +599,28 @@ def test_doctor_reports_the_attachment(tmp_path: Path) -> None:
     r = _cli(tmp_path, "doctor")
     assert "last attached" in r.stdout
     assert r.returncode == 0
+
+
+# --------------------------------------------------------------------------- #
+# the rename from `custody` to `indenture` broke two strings
+# --------------------------------------------------------------------------- #
+def test_the_tool_describes_itself_as_chain_of_custody(tmp_path: Path) -> None:
+    """`chain of custody` is the term of art and the whole pitch. A global
+    search-and-replace of the old name turned it into `chain of indenture`,
+    which means nothing — in the module docstring and in `--help`, the two
+    first lines anyone reads."""
+    assert "chain of custody" in HERE.joinpath("indenture.py").read_text().lower()
+    assert "chain of indenture" not in HERE.joinpath("indenture.py").read_text().lower()
+    r = subprocess.run([sys.executable, str(HERE / "indenture.py"), "--help"],
+                       capture_output=True, text=True)
+    assert "chain of custody" in r.stdout.lower()
+
+
+def test_the_vendorable_file_carries_its_license(tmp_path: Path) -> None:
+    """The advertised install is `curl -O indenture.py`, so the file travels on
+    its own. One that arrives with no licence notice leaves whoever received it
+    unable to say under what terms they hold it."""
+    for name in ("indenture.py", "examples/claude_code_hook.py"):
+        head = HERE.joinpath(name).read_text().split("\n")[:5]
+        assert any("SPDX-License-Identifier: MIT OR Apache-2.0" in l for l in head), name
+        assert any("Copyright" in l for l in head), name

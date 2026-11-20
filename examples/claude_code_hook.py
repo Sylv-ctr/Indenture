@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Copyright 2026 Sylvain Cartier
+# SPDX-License-Identifier: MIT OR Apache-2.0
 """
 Claude Code PreToolUse hook — turn the policy into enforcement.
 
