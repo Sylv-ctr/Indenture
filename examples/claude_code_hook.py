@@ -61,6 +61,14 @@ WATCHED: list[tuple[str, str, str]] = [
     (r"kubectl\s+(apply|delete|scale|rollout)\b", "deploy", "deployment"),
     (r"terraform\s+(apply|destroy)\b", "deploy", "infrastructure"),
     (r"(docker\s+push|helm\s+(install|upgrade))\b", "deploy", "deployment"),
+    # Front-end deployment. The first version of this list was written with a
+    # backend in mind — kubectl, terraform, helm — none of which appear in a
+    # Vite or Next repository. On those, `vercel --prod` IS the irreversible
+    # command, and it was missing entirely.
+    (r"vercel\s+(--prod|deploy|promote)\b", "deploy", "deployment"),
+    (r"netlify\s+deploy\b.*--prod\b", "deploy", "deployment"),
+    (r"(firebase|wrangler|sst|amplify)\s+(deploy|publish)\b", "deploy", "deployment"),
+    (r"(gh-pages|surge)\b", "deploy", "deployment"),
     (r"git\s+push\b", "deploy", "publication"),
     # A package pushed to a registry cannot be unpublished after 72 hours, so it
     # does not belong in the same bucket as `git push`, which a revert undoes.

@@ -238,6 +238,33 @@ A `PreToolUse` hook turns the policy into enforcement rather than a request: see
 most — a rule written in a prompt is a suggestion the model can ignore, and nothing records that
 it did. A denied call exits 2, Claude Code blocks it, and the reason goes back to the model.
 
+**Read this before you trust it.** The enforcement is the host's, not this tool's. Claude Code
+blocks on exit 2 — but if the hook *cannot start*, it reports the failure and **runs the command
+anyway**. That is fail-open, and it is not hypothetical: on the first real Windows install,
+`python` resolved to the Microsoft Store stub, the hook died with "Python was not found", and the
+commands ran. Nothing was written, because the thing that writes never started — so the journal
+was empty and silence meant nothing. Two consequences:
+
+- Give the interpreter's **absolute path** in `settings.json`, not `python`.
+- Run `indenture doctor` after wiring it up, and again if a journal looks suspiciously quiet.
+  That is the command that would have caught the above in ten seconds.
+
+```console
+$ indenture doctor
+python      3.13.1 on Windows (AMD64)
+executable  C:\Users\me\AppData\Local\Python\bin\python.exe
+indenture   0.1.0 from tools/indenture/indenture.py
+locking     msvcrt
+policy      .indenture/policy.json  (5 actors, 9 rules, default=deny)
+write+chain ok
+journal     .indenture/journal.jsonl  (41 entries, intact)
+
+healthy
+```
+
+`doctor` is read-only on your journal — the write test happens in a temporary directory — and it
+exits non-zero when something is wrong, so it works in CI too.
+
 ```bash
 mkdir -p .indenture && cp examples/policy-claude-code.json .indenture/policy.json
 ```
@@ -249,7 +276,7 @@ Then in `.claude/settings.json`:
   "hooks": {
     "PreToolUse": [
       {"matcher": "Bash", "hooks": [{"type": "command",
-        "command": "python examples/claude_code_hook.py claude"}]}
+        "command": "/usr/bin/python3 examples/claude_code_hook.py claude"}]}
     ]
   }
 }
@@ -268,9 +295,16 @@ annoys you; `indenture log --denied` tells you which rule is missing.
 With no actor given at all, the actor is `unknown` and every watched command is refused. That is
 the correct direction to fail, but it looks like a bug if you forget the argument.
 
-**Windows.** The locking in `indenture.py` uses `msvcrt` there instead of `fcntl`. That path is
-written but has not been exercised on a real Windows machine — if you are the first, the
-concurrency behaviour is the thing to check, and an issue would be welcome.
+**Windows.** Use the interpreter's full path, with forward slashes so JSON does not eat the
+backslashes:
+
+```json
+"command": "C:/Users/me/AppData/Local/Python/bin/python.exe tools/indenture/indenture_hook.py claude"
+```
+
+`where python` will often hand you `...\WindowsApps\python.exe` first. That is the Microsoft Store
+stub, not an interpreter; it is what caused the fail-open above. The locking uses `msvcrt`
+instead of `fcntl` on this platform; the concurrency case is the thing to report if it misbehaves.
 
 ## Why the name
 
@@ -309,7 +343,9 @@ that would be guessing with a confident interface.
   who can rewrite the whole file can recompute every hash. Ship the journal somewhere append-only
   if you need more, and the chain will tell you whether what arrived matches what was written.
 - **Not a sandbox.** It records that a handoff was refused; it does not stop a process that
-  ignores the exit code. Pair it with a hook if you want enforcement.
+  ignores the exit code. Pair it with a hook if you want enforcement — and note that the
+  enforcement is then the host's: if the host runs the command when the hook fails to start, the
+  gate is gone and nothing is written to say so. `indenture doctor` exists for exactly that.
 
 ## Concurrency
 

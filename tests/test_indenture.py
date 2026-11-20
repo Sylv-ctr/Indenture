@@ -476,3 +476,65 @@ def test_package_release_is_refused_but_git_push_is_not(tmp_path: Path) -> None:
     r = _hook(tmp_path, "npm publish", actor="claude", by_argv=True)
     assert r.returncode == 2
     assert "72 hours" in r.stderr
+
+
+# --------------------------------------------------------------------------- #
+# doctor — exists because a hook that cannot start is a gate that silently
+# disappeared, and nothing is written to say so
+# --------------------------------------------------------------------------- #
+def test_doctor_is_healthy_after_init(tmp_path: Path) -> None:
+    _cli(tmp_path, "init")
+    r = _cli(tmp_path, "doctor")
+    assert r.returncode == 0, r.stdout
+    assert "healthy" in r.stdout
+    assert "locking" in r.stdout
+
+
+def test_doctor_fails_without_a_policy(tmp_path: Path) -> None:
+    r = _cli(tmp_path, "doctor")
+    assert r.returncode == EXIT_LEDGER
+    assert "no policy" in r.stdout
+
+
+def test_doctor_flags_a_permissive_default(tmp_path: Path) -> None:
+    _cli(tmp_path, "init")
+    pol = tmp_path / ".indenture" / "policy.json"
+    cfg = json.loads(pol.read_text())
+    cfg["default"] = "allow"
+    pol.write_text(json.dumps(cfg))
+    r = _cli(tmp_path, "doctor")
+    assert r.returncode == EXIT_LEDGER
+    assert "not 'deny'" in r.stdout
+
+
+def test_doctor_flags_a_broken_existing_journal(tmp_path: Path) -> None:
+    _cli(tmp_path, "init")
+    _cli(tmp_path, "note", "one")
+    journal = tmp_path / ".indenture" / "journal.jsonl"
+    journal.write_text(journal.read_text().replace("one", "tampered"))
+    r = _cli(tmp_path, "doctor")
+    assert r.returncode == EXIT_LEDGER
+    assert "does not verify" in r.stdout
+
+
+def test_doctor_does_not_write_to_the_real_journal(tmp_path: Path) -> None:
+    """A health check that pollutes the thing it checks is not a health check."""
+    _cli(tmp_path, "init")
+    _cli(tmp_path, "note", "real")
+    before = len(Indenture(tmp_path / ".indenture").entries())
+    _cli(tmp_path, "doctor")
+    assert len(Indenture(tmp_path / ".indenture").entries()) == before
+
+
+@pytest.mark.parametrize("command", [
+    "vercel --prod",
+    "netlify deploy --prod",
+    "firebase deploy",
+    "wrangler deploy",
+])
+def test_front_end_deploys_are_watched(tmp_path: Path, command: str) -> None:
+    """The first watched list was backend-shaped: kubectl, terraform, helm —
+    none of which appear in a Vite repository, where `vercel --prod` is the
+    irreversible command."""
+    _cli(tmp_path, "init")
+    assert _hook(tmp_path, command, actor="backend", by_argv=True).returncode == 2, command

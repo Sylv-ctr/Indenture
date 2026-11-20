@@ -492,6 +492,89 @@ def _c(entry: dict) -> str:
     return f"{seq:>4} {ts} {ev}"
 
 
+def _doctor(root: str) -> int:
+    """Prove the installation works, rather than assuming it does.
+
+    This exists because of a real failure: on Windows, `python` resolved to the
+    Microsoft Store stub, the hook could not start, and the host ran the command
+    anyway. A hook that cannot start is not a refusal — it is a gate that
+    silently disappeared, and nothing was written, so nothing said so. One
+    command that exits 0 or tells you why is the cheapest defence against that.
+    """
+    import platform
+    import tempfile
+
+    problems: list = []
+    print(f"python      {sys.version.split()[0]} on {platform.system()} "
+          f"({platform.machine()})")
+    print(f"executable  {sys.executable}")
+    print(f"indenture   {__version__} from {Path(__file__).resolve()}")
+
+    if LOCKING:
+        print(f"locking     {LOCKING}")
+    else:
+        print("locking     NONE — concurrent writers may fork the chain")
+        problems.append("no locking primitive on this platform")
+
+    ind = Indenture(root)
+    pol = ind.root / POLICY
+    if not pol.exists():
+        print(f"policy      MISSING at {pol} — run `indenture init`")
+        problems.append("no policy")
+    else:
+        try:
+            Policy.load(pol)
+            p = ind.policy
+            print(f"policy      {pol}  ({len(p.actors)} actors, {len(p.rules)} rules, "
+                  f"default={p.default})")
+            if p.default != "deny":
+                problems.append(f"default is {p.default!r}, not 'deny'")
+            if not p.actors:
+                problems.append("no actors declared: every handoff will be refused")
+        except Exception as exc:
+            print(f"policy      UNREADABLE: {exc}")
+            problems.append("policy does not parse")
+
+    # Can we actually write and verify a chain? Done in a throwaway directory so
+    # the real journal is not polluted by a health check.
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            probe = Indenture(Path(tmp) / ".indenture")
+            probe.root.mkdir(parents=True, exist_ok=True)
+            probe.note("doctor self-test", by="doctor")
+            probe.note("doctor self-test", by="doctor")
+            ok, why = probe.verify()
+            print(f"write+chain {'ok' if ok else 'BROKEN: ' + str(why)}")
+            if not ok:
+                problems.append("cannot write a verifiable chain")
+        except Exception as exc:
+            print(f"write+chain FAILED: {exc}")
+            problems.append(f"cannot write: {exc}")
+
+    if ind.journal.exists():
+        n = len(ind.entries())
+        ok, why = ind.verify()
+        print(f"journal     {ind.journal}  ({n} "
+              f"{'entry' if n == 1 else 'entries'}, "
+              f"{'intact' if ok else str(len(why)) + ' problems'})")
+        if not ok:
+            problems.append("the existing journal does not verify")
+    else:
+        print(f"journal     none yet at {ind.journal}")
+        print("            If a hook is wired and you have run commands, an empty")
+        print("            journal means the hook never started. Check the host's")
+        print("            hook log: a hook that fails may not block anything.")
+
+    print()
+    if problems:
+        print(f"NOT HEALTHY: {len(problems)} problem(s)")
+        for pb in problems:
+            print(f"  - {pb}")
+        return EXIT_LEDGER
+    print("healthy")
+    return EXIT_OK
+
+
 def main(argv: list | None = None) -> int:
     p = argparse.ArgumentParser(
         prog="indenture",
@@ -525,7 +608,9 @@ def main(argv: list | None = None) -> int:
     s.add_argument("--denied", action="store_true", help="only refused handoffs")
     s.add_argument("--json", action="store_true")
 
-    sub.add_parser("verify", help="recompute the hash chain; exit 1 if broken")
+    sub.add_parser("verify", help="recompute the hash chain; exit 4 if broken")
+
+    sub.add_parser("doctor", help="check that this installation actually works")
 
     s = sub.add_parser("replay", help="state as of an entry")
     s.add_argument("--until", type=int, default=None)
@@ -589,6 +674,9 @@ def main(argv: list | None = None) -> int:
             for e in entries:
                 print(_c(e))
         return 0
+
+    if a.cmd == "doctor":
+        return _doctor(a.dir)
 
     if a.cmd == "verify":
         ok, problems = c.verify()
