@@ -355,3 +355,68 @@ def test_every_hook_target_exists_in_the_shipped_policy(tmp_path: Path) -> None:
     declared = Indenture(tmp_path / ".indenture").policy.actors
     targets = {target for _pattern, target, _kind in hook.WATCHED}
     assert targets <= set(declared), targets - set(declared)
+
+
+# --------------------------------------------------------------------------- #
+# Concurrency — the failure that matters most, since concurrent agents are the
+# headline use case
+# --------------------------------------------------------------------------- #
+def test_this_platform_has_a_locking_primitive() -> None:
+    """Not a tautology: it is the precondition for the test below to mean
+    anything. If this fails, the suite is proving nothing about concurrency."""
+    import indenture as ind_mod  # noqa: PLC0415
+
+    assert ind_mod.LOCKING in {"fcntl", "msvcrt"}
+
+
+def test_concurrent_writers_do_not_fork_the_chain(tmp_path: Path) -> None:
+    """Without the lock this reliably produces duplicate seq values: twenty-four
+    writers measured eight distinct sequence numbers and twenty-five chain
+    problems. The read-tip-then-append window has to be indivisible."""
+    _cli(tmp_path, "init")
+    root = tmp_path / ".indenture"
+    writers = 16
+
+    script = (
+        "import sys; sys.path.insert(0, %r);"
+        "from indenture import Indenture;"
+        "Indenture(%r).write_state('k'+sys.argv[1], {'v': 1}, by='data')"
+        % (str(HERE), str(root))
+    )
+    procs = [
+        subprocess.Popen([sys.executable, "-c", script, str(n)],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        for n in range(writers)
+    ]
+    for p in procs:
+        assert p.wait(timeout=60) == 0, p.stderr.read().decode()
+
+    entries = Indenture(root).entries()
+    seqs = [e["seq"] for e in entries]
+    assert len(entries) == writers, f"{len(entries)} entries for {writers} writers"
+    assert len(set(seqs)) == writers, f"duplicate seq: {sorted(seqs)}"
+    assert sorted(seqs) == list(range(writers))
+
+    ok, problems = Indenture(root).verify()
+    assert ok, problems
+
+
+def test_absent_locking_warns_once_and_still_records(tmp_path: Path, capsys) -> None:
+    """Refusing to write would be the worse failure: a journal that declines to
+    record is a hole in the audit trail. Same rule as an unknown actor on a
+    state write."""
+    import indenture as ind_mod  # noqa: PLC0415
+
+    saved, ind_mod.LOCKING = ind_mod.LOCKING, None
+    ind_mod.Indenture._warned_unlocked = False
+    try:
+        ind = ind_mod.Indenture(tmp_path / ".indenture")
+        ind.init()
+        ind.note("one")
+        ind.note("two")
+        warnings = [l for l in capsys.readouterr().err.splitlines() if "locking" in l]
+        assert len(warnings) == 1, warnings
+        assert len(ind.entries()) == 2
+    finally:
+        ind_mod.LOCKING = saved
+        ind_mod.Indenture._warned_unlocked = False

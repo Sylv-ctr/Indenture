@@ -245,12 +245,19 @@ The hook is what turns a written rule into an applied one.
 
 Recorded rather than resolved, so they are not quietly decided by the first implementation.
 
-**Concurrent writers.** The current implementation reads the journal tail to compute `seq`
-and `prev`, then appends. Two processes doing that at the same instant fork the chain.
-`verify` catches it, so it fails loudly rather than silently — but concurrent agents are the
-headline use case, so this is the most likely real-world failure. Candidates: an advisory
-lock on the journal, a per-actor segment with a deterministic merge, or a single writer
-process. Undecided.
+**Concurrent writers — resolved for the single-machine case.** An exclusive lock on
+`journal.lock` makes read-tip-then-append indivisible (`fcntl`, or `msvcrt` on Windows).
+Measured before the fix: twenty-four concurrent writers produced eight distinct `seq` values.
+After: twenty-four distinct values and an intact chain.
+
+An implementation MUST serialise that window. Where no locking primitive exists it MUST warn
+and still record, because a journal that declines to write is a hole in the audit trail.
+
+Still open: a journal on a network filesystem, where the lock may be accepted and silently not
+enforced; and writers on **different machines**, which no local lock can serialise. The latter
+is not a bug to fix locally — it is the case a central receiver answers (see
+`claude/ADR-004`), and a per-actor segment with a deterministic merge remains the alternative
+if that receiver never exists.
 
 **Append cost.** Computing the tip reads the whole journal, so appending is O(n) and a run
 is O(n²). Fine for thousands of entries, not for millions. A sidecar index would fix it at

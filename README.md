@@ -302,13 +302,21 @@ that would be guessing with a confident interface.
 - **Not a sandbox.** It records that a handoff was refused; it does not stop a process that
   ignores the exit code. Pair it with a hook if you want enforcement.
 
-## Known limitation
+## Concurrency
 
-**Appends are not locked.** Two processes appending at the same instant can compute the same
-`seq` and `prev`, which forks the chain. It fails loudly — `verify` reports it — but it does
-fail, and concurrent agents are precisely this tool's use case. Until that is fixed: write from
-one process, or give each actor its own journal. Discussion in
-[`docs/DESIGN.md` §7](docs/DESIGN.md).
+Appends are serialised with an exclusive file lock, because computing the tip and writing have
+to be one indivisible step. Without it the damage is not subtle: twenty-four concurrent writers
+measured **eight** distinct sequence numbers and twenty-five chain problems. With it, twenty-four
+entries, twenty-four sequence numbers, chain intact — and the suite runs that case on every
+commit.
+
+`fcntl` on Unix, `msvcrt` on Windows. On a platform with neither, it warns once on stderr and
+still records: a journal that declines to write is a hole in the audit trail, which is the same
+reason an unknown actor is recorded rather than refused on a state write. `verify` still detects
+a forked chain, so the failure stays loud.
+
+Not yet solved: a journal on a network filesystem where the lock may be a silent no-op, and
+writers on different machines. Both are in [`docs/DESIGN.md` §7](docs/DESIGN.md).
 
 ## Status
 

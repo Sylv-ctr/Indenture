@@ -47,6 +47,7 @@ As a library:
 from __future__ import annotations
 
 import argparse
+import contextlib
 import hashlib
 import json
 import os
@@ -61,6 +62,50 @@ __version__ = "0.1.0"
 GENESIS = "0" * 64
 JOURNAL = "journal.jsonl"
 POLICY = "policy.json"
+LOCKFILE = "journal.lock"
+
+
+# --------------------------------------------------------------------------- #
+# File locking
+# --------------------------------------------------------------------------- #
+# Computing the tip and appending must be one indivisible step. Two processes
+# that read the tip at the same instant compute the same `seq` and the same
+# `prev`, and the chain forks. Concurrent agents are this tool's whole use case,
+# so this is the failure that matters most.
+#
+# A dedicated lock file is used rather than the journal itself, so the lock's
+# lifetime does not depend on the handles used to read and write.
+try:
+    import fcntl
+
+    def _lock(fh) -> None:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_EX)
+
+    def _unlock(fh) -> None:
+        fcntl.flock(fh.fileno(), fcntl.LOCK_UN)
+
+    LOCKING = "fcntl"
+except ImportError:  # pragma: no cover - Windows
+    try:
+        import msvcrt
+
+        def _lock(fh) -> None:
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_LOCK, 1)
+
+        def _unlock(fh) -> None:
+            fh.seek(0)
+            msvcrt.locking(fh.fileno(), msvcrt.LK_UNLCK, 1)
+
+        LOCKING = "msvcrt"
+    except ImportError:  # pragma: no cover - neither available
+        def _lock(fh) -> None:
+            pass
+
+        def _unlock(fh) -> None:
+            pass
+
+        LOCKING = None
 
 # Entry kinds. Kept small on purpose: a vocabulary that grows is a vocabulary
 # nobody can write tooling against.
@@ -189,6 +234,8 @@ class Policy:
 # The journal
 # --------------------------------------------------------------------------- #
 class Indenture:
+    _warned_unlocked = False
+
     def __init__(self, root: str | Path = ".indenture") -> None:
         self.root = Path(root)
         self.journal = self.root / JOURNAL
@@ -227,13 +274,42 @@ class Indenture:
         return int(last.get("seq", len(entries) - 1)) + 1, str(last.get("hash", GENESIS))
 
     # -- writing ----------------------------------------------------------- #
-    def _append(self, body: dict) -> dict:
-        seq, prev = self._tip()
-        entry = {"seq": seq, "ts": now(), "prev": prev, **body}
-        entry["hash"] = sha(canonical(entry))
+    @contextlib.contextmanager
+    def _exclusive(self):
+        """Serialise read-tip-then-append across processes.
+
+        When no locking primitive exists, this warns once and proceeds. Refusing
+        to write would be the worse failure: a journal that declines to record
+        is a hole in the audit trail, which is the same reason an unknown actor
+        is recorded rather than refused on a state write. `verify` still detects
+        a chain that forked, so the failure stays loud.
+        """
         self.root.mkdir(parents=True, exist_ok=True)
-        with self.journal.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        if LOCKING is None:
+            if not Indenture._warned_unlocked:
+                Indenture._warned_unlocked = True
+                print("indenture: no file locking on this platform; concurrent "
+                      "writers may fork the chain. Run `indenture verify`.",
+                      file=sys.stderr)
+            yield
+            return
+        with (self.root / LOCKFILE).open("a+", encoding="utf-8") as fh:
+            _lock(fh)
+            try:
+                yield
+            finally:
+                with contextlib.suppress(OSError):
+                    _unlock(fh)
+
+    def _append(self, body: dict) -> dict:
+        with self._exclusive():
+            seq, prev = self._tip()
+            entry = {"seq": seq, "ts": now(), "prev": prev, **body}
+            entry["hash"] = sha(canonical(entry))
+            with self.journal.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
         return entry
 
     def _payload_fields(self, payload: Any, store: bool) -> dict:
