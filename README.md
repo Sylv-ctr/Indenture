@@ -340,6 +340,25 @@ mattered.
 before the one you are looking at, which is where root causes tend to sit. Inferring more than
 that would be guessing with a confident interface.
 
+## Other hosts, other providers
+
+The core knows nothing about any provider. It imports nothing outside the standard library,
+makes no network call, and never talks to a model: it takes a command, reads a JSON file, and
+answers with an exit code. Whether GPT, Claude or Gemini produced the command does not reach it.
+
+What is host-specific is the *gate* — where you put it. The hook in `examples/` speaks Claude
+Code's shape. Codex, Cursor and Grok Build converged on the same convention, where **exit 2
+blocks**, so an adapter is mostly a different config path and a different field name in the JSON
+reply. In library mode there is nothing to adapt at all: call `authorize()` from your own
+orchestrator, CrewAI, LangGraph or a shell script, and the host never enters into it.
+
+If you run one of those hosts, that adapter is the issue I would most like to receive.
+
+One warning that generalises. Hooks fail open, and not only here: the Windows failure described
+above has an analogue reported on Codex, where a `PreToolUse` denial by exit code was classified
+as a hook *failure* and the command then ran. Treat the gate as the host's, verify it with
+`indenture doctor`, and read the `hook attached` entry rather than trusting a quiet journal.
+
 ## What this is not
 
 - **Not a tracer.** It records decisions and handoffs, not spans. Run it next to
