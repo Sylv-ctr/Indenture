@@ -15,12 +15,19 @@ Install (`.claude/settings.json`):
             "matcher": "Bash",
             "hooks": [
               {"type": "command",
-               "command": "python examples/claude_code_hook.py claude"}
+               "command": "/usr/bin/python3 examples/claude_code_hook.py claude"}
             ]
           }
         ]
       }
     }
+
+Give the interpreter's ABSOLUTE path, not `python`. If this hook cannot start,
+Claude Code reports the failure and runs the command anyway — it fails open —
+and since the thing that writes never started, the journal stays empty and says
+nothing about it. On Windows `python` commonly resolves to the Microsoft Store
+stub, which is not an interpreter; that is how this was discovered. Run
+`indenture doctor` after wiring this up: it is the ten-second check.
 
 The actor name is the first argument. It is passed on the command line rather
 than through an environment variable because `VAR=value command` is Unix shell
