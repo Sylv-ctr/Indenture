@@ -375,7 +375,7 @@ v0.1. The API may change. The journal format and the exit codes are the parts in
 stable — if you build on one thing, build on those.
 
 ```bash
-pip install -e ".[dev]" && pytest     # 32 tests, one per claim made above
+pip install -e ".[dev]" && pytest     # 62 tests, one per claim made above
 ```
 
 ## If you run more than three agents, I want to hear from you
