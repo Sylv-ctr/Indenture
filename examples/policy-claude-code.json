@@ -15,7 +15,11 @@
 
   "rules": [
     {
-      "_": "Refusals first — the first matching rule decides, so anything permissive above these would win silently.",
+      "_": "Refusals first — the first matching rule decides, so anything permissive above these would win silently. Tampering comes before the generic refusal so the journal records the real reason.",
+      "from": "claude", "to": "destructive", "kind": "tamper", "allow": false,
+      "reason": "the journal, the policy and the hook are the record of what you did: an agent does not edit its own audit trail. Read it with `indenture log` or `indenture why`, and tell me if the policy needs to change."
+    },
+    {
       "from": "claude", "to": "destructive", "allow": false,
       "reason": "this destroys data and cannot be undone. Show me the command and let me run it myself."
     },

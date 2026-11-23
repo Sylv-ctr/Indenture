@@ -624,3 +624,119 @@ def test_the_vendorable_file_carries_its_license(tmp_path: Path) -> None:
         head = HERE.joinpath(name).read_text().split("\n")[:5]
         assert any("SPDX-License-Identifier: MIT OR Apache-2.0" in l for l in head), name
         assert any("Copyright" in l for l in head), name
+
+
+# --------------------------------------------------------------------------- #
+# The record protects itself — an agent that can edit the journal, the policy
+# or the hook writes its own account of what it did
+# --------------------------------------------------------------------------- #
+def _hook_event(tmp_path: Path, tool: str, tool_input: dict,
+                actor: str = "claude") -> subprocess.CompletedProcess:
+    env = {"PATH": "/usr/bin:/bin", "INDENTURE_DIR": str(tmp_path / ".indenture"),
+           "CLAUDE_PROJECT_DIR": str(tmp_path)}
+    return subprocess.run(
+        [sys.executable, str(HERE / "examples" / "claude_code_hook.py"), actor],
+        input=json.dumps({"tool_name": tool, "session_id": "s-1", "tool_input": tool_input}),
+        capture_output=True, text=True, env=env, cwd=tmp_path,
+    )
+
+
+def _with_claude_policy(tmp_path: Path) -> None:
+    root = tmp_path / ".indenture"
+    root.mkdir()
+    (root / "policy.json").write_text(
+        (HERE / "examples" / "policy-claude-code.json").read_text())
+    (root / "journal.jsonl").touch()
+
+
+@pytest.mark.parametrize("tool,key,rel", [
+    ("Edit", "file_path", ".indenture/journal.jsonl"),
+    ("Write", "file_path", ".indenture/policy.json"),
+    ("MultiEdit", "file_path", ".claude/settings.json"),
+    ("Write", "file_path", ".claude/settings.local.json"),
+    ("NotebookEdit", "notebook_path", ".indenture/anything.ipynb"),
+])
+def test_editing_tools_cannot_touch_the_record(tmp_path: Path, tool: str, key: str,
+                                               rel: str) -> None:
+    _with_claude_policy(tmp_path)
+    r = _hook_event(tmp_path, tool, {key: rel})
+    assert r.returncode == 2, (tool, rel, r.stderr)
+    assert "audit trail" in r.stderr
+    assert "tamper" in r.stderr
+
+
+def test_editing_tools_cannot_touch_the_hook_itself(tmp_path: Path) -> None:
+    _with_claude_policy(tmp_path)
+    hook = HERE / "examples" / "claude_code_hook.py"
+    assert _hook_event(tmp_path, "Edit", {"file_path": str(hook)}).returncode == 2
+    assert _hook_event(tmp_path, "Edit", {"file_path": str(HERE / "indenture.py")}).returncode == 2
+
+
+def test_ordinary_edits_pass_and_are_not_journaled(tmp_path: Path) -> None:
+    _with_claude_policy(tmp_path)
+    r = _hook_event(tmp_path, "Edit", {"file_path": "src/app.py"})
+    assert r.returncode == 0
+    entries = list(Indenture(tmp_path / ".indenture").entries())
+    assert all(e.get("kind") != "tamper" for e in entries)
+
+
+@pytest.mark.parametrize("command", [
+    "sed -i 1d .indenture/journal.jsonl",
+    "echo '{}' >> .indenture/journal.jsonl",
+    "head -n 3 .indenture/journal.jsonl > /tmp/j && mv /tmp/j .indenture/journal.jsonl",
+    "rm .indenture/policy.json",
+    "cp /tmp/open.json .indenture/policy.json",
+    "python3 -c \"open('.indenture/journal.jsonl','w')\"",
+    "sed -i 's/Bash//' .claude/settings.json",
+    "indenture init --force",
+    "python3 indenture.py --dir .indenture init --force",
+    "indenture log > .indenture/journal.jsonl",
+])
+def test_the_shell_cannot_rewrite_the_record(tmp_path: Path, command: str) -> None:
+    _with_claude_policy(tmp_path)
+    r = _hook_event(tmp_path, "Bash", {"command": command})
+    assert r.returncode == 2, (command, r.stderr)
+
+
+@pytest.mark.parametrize("command", [
+    "indenture log",
+    "indenture verify",
+    "python3 indenture.py --dir .indenture why 12",
+    "indenture doctor",
+    "npm test",
+])
+def test_reading_the_record_through_the_cli_is_allowed(tmp_path: Path, command: str) -> None:
+    _with_claude_policy(tmp_path)
+    assert _hook_event(tmp_path, "Bash", {"command": command}).returncode == 0, command
+
+
+def test_the_tamper_refusal_is_recorded_with_its_real_reason(tmp_path: Path) -> None:
+    """Same lesson as the destructive actor: the right verdict for the wrong
+    reason is a lie in the journal. Tampering is refused as tampering."""
+    _with_claude_policy(tmp_path)
+    _hook_event(tmp_path, "Edit", {"file_path": ".indenture/journal.jsonl"})
+    denied = [e for e in Indenture(tmp_path / ".indenture").entries()
+              if e.get("decision") == "deny"]
+    assert denied and denied[-1]["kind"] == "tamper"
+
+
+def test_the_shipped_default_policy_also_names_tampering(tmp_path: Path) -> None:
+    _cli(tmp_path, "init")
+    r = _hook_event(tmp_path, "Write", {"file_path": ".indenture/policy.json"}, actor="backend")
+    assert r.returncode == 2
+    assert "audit trail" in r.stderr
+
+
+def test_verify_cannot_see_a_truncated_tail(tmp_path: Path) -> None:
+    """A documented limitation, pinned so it cannot be forgotten or quietly
+    claimed away: dropping the last entries leaves a shorter chain that is
+    still valid. Only a copy of the tip held elsewhere — the reserved `receipt`
+    field — can tell. If this test ever fails, the README and SECURITY.md are
+    out of date."""
+    _cli(tmp_path, "init")
+    for i in range(4):
+        _cli(tmp_path, "note", f"n{i}")
+    journal = tmp_path / ".indenture" / "journal.jsonl"
+    lines = journal.read_text().splitlines(keepends=True)
+    journal.write_text("".join(lines[:-2]))
+    assert _cli(tmp_path, "verify").returncode == 0

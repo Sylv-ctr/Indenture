@@ -199,6 +199,10 @@ wrong.
 - **reordered** entries — at the first entry whose `prev` does not match;
 - an **unparseable** line — reported, never skipped.
 
+It does **not** detect entries removed from the **end**: a truncated journal is a shorter chain,
+and a shorter chain is valid. Detecting it needs the tip held by someone other than the author,
+which is what `receipt` (§3.4) is reserved for.
+
 It MUST exit `4` on any of these. Tamper-*evident* means the detection is deterministic, not
 probabilistic. It is not tamper-*proof*: whoever can rewrite the whole file can recompute
 every hash. Ship the journal somewhere append-only if that matters, and the chain will tell
