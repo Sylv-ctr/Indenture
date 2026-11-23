@@ -14,7 +14,7 @@ Install (`.claude/settings.json`):
       "hooks": {
         "PreToolUse": [
           {
-            "matcher": "Bash",
+            "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
             "hooks": [
               {"type": "command",
                "command": "/usr/bin/python3 examples/claude_code_hook.py claude"}
@@ -41,6 +41,16 @@ Behaviour:
   exit 0  — allowed, or the tool is not under policy. Claude Code proceeds.
   exit 2  — denied. Claude Code blocks the call and feeds stderr to the model,
             so it sees the reason rather than an opaque failure.
+
+The file-editing tools are in the matcher for one reason: the record. An agent
+that can open the journal, the policy, this hook or Claude Code's settings with
+Edit or Write can rewrite the account of what it did, or switch the gate off,
+without ever touching a watched command. Those paths are refused as `tamper`,
+from the editing tools and from the shell alike. Every other edit passes
+through unrecorded. This closes the obvious routes, not every route: a script
+the agent writes and then runs can still reach the file. This is a gate, not a
+sandbox — for more, make the journal unwritable by the agent's OS user, or ship
+it somewhere append-only.
 
 Tools that are not under policy are NOT journaled. A journal that records every
 unmonitored call is a journal nobody reads, and the signal disappears into it.
@@ -96,6 +106,66 @@ WATCHED: list[tuple[str, str, str]] = [
 ]
 
 
+# --------------------------------------------------------------------------- #
+# The record protects itself.
+#
+# A journal the agent can edit is a journal the agent writes. These are the
+# files whose integrity the whole tool rests on: the journal and the policy
+# (the indenture directory), this hook and the module it imports, and Claude
+# Code's settings, where the hook is switched on. Refused as kind `tamper`, so a
+# policy can give the refusal its own reason — and relax it, deliberately.
+# --------------------------------------------------------------------------- #
+EDIT_TOOLS = {"Edit": "file_path", "Write": "file_path",
+              "MultiEdit": "file_path", "NotebookEdit": "notebook_path"}
+
+# Reading the journal is fine, and the CLI is how it is meant to be read. A
+# read-only subcommand with no redirection or chaining is let through even when
+# it names the directory; anything else that names a protected file is refused.
+READ_ONLY_CLI = re.compile(
+    r"(\S*python[\d.]*\s+)?\S*indenture(\.py)?\s+(--dir\s+\S+\s+)?"
+    r"(log|verify|doctor|why|blame|replay)\b[^;&|>`$]*$")
+# `init --force` rewrites the policy without naming any file.
+REINIT = re.compile(r"(\S*python[\d.]*\s+)?\S*indenture(\.py)?\s+(--dir\s+\S+\s+)?init\b")
+
+
+def protected_paths(root: Path) -> list[Path]:
+    """The files and directories an agent must not edit, resolved."""
+    project = Path(os.environ.get("CLAUDE_PROJECT_DIR") or Path.cwd())
+    import indenture as _module  # noqa: PLC0415 — already imported above
+    return [
+        root.resolve(),
+        Path(__file__).resolve(),
+        Path(_module.__file__).resolve(),
+        (project / ".claude" / "settings.json").resolve(),
+        (project / ".claude" / "settings.local.json").resolve(),
+    ]
+
+
+def touches_protected(path: str, root: Path) -> bool:
+    """True if `path` is, or is inside, a protected file or directory."""
+    project = Path(os.environ.get("CLAUDE_PROJECT_DIR") or Path.cwd())
+    p = Path(path)
+    p = (p if p.is_absolute() else project / p).resolve()
+    return any(p == q or q in p.parents for q in protected_paths(root))
+
+
+def names_protected(command: str, root: Path) -> bool:
+    """True if a shell command names a protected file in a way that could write.
+
+    Matching on names is coarse on purpose: a shell command is not parsed here,
+    and a gate that tries to tell `cat` from `cat >` by grammar is a gate with a
+    hole in its grammar. Reading goes through the CLI instead.
+    """
+    stripped = command.strip()
+    if REINIT.match(stripped):
+        return True
+    if READ_ONLY_CLI.match(stripped):
+        return False
+    names = {root.name, ".claude/settings", ".claude\\settings",
+             Path(__file__).name, "indenture.py"}
+    return any(n in command for n in names)
+
+
 SESSION_MARKER = "hook-session"
 
 
@@ -144,25 +214,36 @@ def main() -> int:
         print("indenture: could not parse hook input", file=sys.stderr)
         return 1
 
-    command = (event.get("tool_input") or {}).get("command", "")
-    if not command:
+    tool = str(event.get("tool_name") or "Bash")
+    tool_input = event.get("tool_input") or {}
+    command = tool_input.get("command", "") if tool == "Bash" else ""
+    path = tool_input.get(EDIT_TOOLS[tool], "") if tool in EDIT_TOOLS else ""
+    if not command and not path:
         return 0
 
     # argv[1] first, so one settings.json works on Windows and Unix alike.
     actor = os.environ.get("INDENTURE_ACTOR") or (
         sys.argv[1] if len(sys.argv) > 1 else "unknown")
-    ind = Indenture(os.environ.get("INDENTURE_DIR", ".indenture"))
+    root = Path(os.environ.get("INDENTURE_DIR", ".indenture"))
+    ind = Indenture(root)
 
     # Before classifying, not after: the point is to prove the gate ran, which
     # matters most in the session where nothing watched ever happens.
     record_attachment(ind, actor, str(event.get("session_id") or "no-session-id"))
 
-    verdict = classify(command)
-    if verdict is None:
-        return 0
+    if path:
+        if not touches_protected(path, root):
+            return 0
+        target, kind, payload = "destructive", "tamper", {"tool": tool, "path": path}
+    elif names_protected(command, root):
+        target, kind, payload = "destructive", "tamper", {"command": command}
+    else:
+        verdict = classify(command)
+        if verdict is None:
+            return 0
+        (target, kind), payload = verdict, {"command": command}
 
-    target, kind = verdict
-    decision = ind.authorize(actor, target, kind=kind, payload={"command": command})
+    decision = ind.authorize(actor, target, kind=kind, payload=payload)
 
     if decision.allowed:
         return 0

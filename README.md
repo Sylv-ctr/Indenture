@@ -281,7 +281,7 @@ Then in `.claude/settings.json`:
 {
   "hooks": {
     "PreToolUse": [
-      {"matcher": "Bash", "hooks": [{"type": "command",
+      {"matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit", "hooks": [{"type": "command",
         "command": "/usr/bin/python3 examples/claude_code_hook.py claude"}]}
     ]
   }
@@ -292,6 +292,15 @@ The actor is the argument. It is passed on the command line rather than through 
 variable because `VAR=value command` is Unix shell syntax — on Windows it is not valid, and the
 same `settings.json` has to work on both. `INDENTURE_ACTOR` still overrides it if you prefer
 the environment.
+
+**The editing tools are in the matcher to protect the record.** An agent that can open the
+journal, the policy, the hook or `.claude/settings.json` with Edit or Write can rewrite the
+account of what it did, or switch the gate off, without running a single watched command. The
+hook refuses those paths as kind `tamper`, from the editing tools and from the shell. Reading the
+journal goes through the CLI — `indenture log`, `indenture why` — which is let through. Every
+other edit passes unrecorded. This closes the obvious routes, not all of them: a script the agent
+writes and then runs can still reach the file. For more, make `.indenture/` unwritable by the
+agent's OS user, or ship the journal somewhere append-only.
 
 [`examples/policy-claude-code.json`](examples/policy-claude-code.json) is written for one
 developer and one session: the agent may `git push` — you review the diff anyway, and blocking
@@ -367,6 +376,9 @@ as a hook *failure* and the command then ran. Treat the gate as the host's, veri
 - **Not cryptographic attestation.** The chain is tamper-*evident*, not tamper-*proof*: someone
   who can rewrite the whole file can recompute every hash. Ship the journal somewhere append-only
   if you need more, and the chain will tell you whether what arrived matches what was written.
+  For the same reason, **dropping the last entries goes unnoticed**: a shorter chain is still a
+  valid chain. Only a copy of the tip held by someone else can tell — that is what the reserved
+  `receipt` field is for. A test pins this limitation so it cannot be quietly claimed away.
 - **Not a sandbox.** It records that a handoff was refused; it does not stop a process that
   ignores the exit code. Pair it with a hook if you want enforcement — and note that the
   enforcement is then the host's: if the host runs the command when the hook fails to start, the

@@ -59,7 +59,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 GENESIS = "0" * 64
 JOURNAL = "journal.jsonl"
@@ -460,6 +460,10 @@ EXAMPLE_POLICY = {
     "rules": [
         {"from": "*", "to": "deploy", "allow": False,
          "reason": "deployment is irreversible: ask the operator to run it"},
+        {"from": "*", "to": "destructive", "kind": "tamper", "allow": False,
+         "reason": "the journal, the policy and the hook are the audit trail: an agent "
+                   "does not edit its own. Read it with `indenture log`; ask the operator "
+                   "to change the policy"},
         {"from": "*", "to": "destructive", "allow": False,
          "reason": "this destroys data and cannot be undone: ask the operator to run it"},
         {"from": "human", "to": "*", "allow": True,
@@ -599,7 +603,7 @@ def main(argv: list | None = None) -> int:
     s = sub.add_parser("init", help="create the journal and an example policy")
     s.add_argument("--force", action="store_true", help="overwrite an existing policy")
 
-    s = sub.add_parser("check", help="authorize a handoff; exit 0 if allowed, 1 if denied")
+    s = sub.add_parser("check", help="authorize a handoff; exit 0 if allowed, 2 if denied")
     s.add_argument("src"); s.add_argument("dst")
     s.add_argument("--kind", default="work")
     s.add_argument("--payload", default="", help="JSON string, or @file")

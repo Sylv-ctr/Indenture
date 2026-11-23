@@ -19,7 +19,10 @@ altered journal verify:
 
 - a command that should match a rule and does not, or matches the wrong one
 - a policy that parses into something other than what it reads like
-- a journal that `verify` accepts after being edited, truncated or reordered
+- a journal that `verify` accepts after an entry was edited, reordered, or removed from
+  anywhere but the end
+- an edit to the journal, the policy, the hook or `.claude/settings.json` that the shipped
+  hook lets through from the Edit/Write tools or a plain shell command
 - a redaction that leaks the value it was supposed to replace
 - a path where `authorize` returns a decision without journaling it
 
@@ -31,6 +34,10 @@ These are documented limitations, not vulnerabilities. They are in the README an
 - **Rewriting the whole journal.** The chain is tamper-*evident*, not tamper-*proof*. Someone
   who can rewrite the file can recompute every hash. Ship the journal somewhere append-only if
   you need more.
+- **Dropping the last entries.** A truncated journal is a shorter, valid chain. Nothing local
+  can tell; a copy of the tip held elsewhere can (`docs/DESIGN.md` §3.4, `receipt`).
+- **A script the agent writes and then runs.** The hook refuses the obvious routes to the
+  record — editing tools, shell commands naming it — not arbitrary code. That is a sandbox's job.
 - **The host failing open.** If the host runs a command when the hook cannot start, the gate is
   gone and this tool never ran. That is the host's behaviour, not a flaw here — see "Read this
   before you trust it" in the README, and run `indenture doctor`.
