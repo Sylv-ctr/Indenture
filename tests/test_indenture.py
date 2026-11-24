@@ -17,6 +17,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from indenture import (  # noqa: E402
+    __version__,
     EXIT_DENIED,
     EXIT_LEDGER,
     GENESIS,
@@ -740,3 +741,34 @@ def test_verify_cannot_see_a_truncated_tail(tmp_path: Path) -> None:
     lines = journal.read_text().splitlines(keepends=True)
     journal.write_text("".join(lines[:-2]))
     assert _cli(tmp_path, "verify").returncode == 0
+
+
+# --------------------------------------------------------------------------- #
+# the ANSSI mapping — a document that names a version will outlive it
+# --------------------------------------------------------------------------- #
+def test_the_anssi_mapping_names_the_current_version() -> None:
+    """A compliance-adjacent document that claims to describe version X while the
+    code is at version Y is the defect this project keeps finding: an assertion
+    copied forward and never re-checked. If this fails, re-verify the mapping
+    against the code before bumping the number."""
+    import re
+    for name in ("docs/ANSSI.md", "docs/fr/ANSSI.md"):
+        text = HERE.joinpath(name).read_text(encoding="utf-8")
+        claimed = set(re.findall(r"0\.\d+\.\d+", text))
+        assert claimed == {__version__}, (
+            f"{name} mentions {sorted(claimed)} but the code is {__version__}")
+
+
+def test_the_anssi_mapping_states_the_five_gaps_and_claims_no_endorsement() -> None:
+    """The useful half of that document is what the tool does NOT do, and the
+    sentence that keeps it honest. Both are load-bearing: a mapping that reads as
+    a compliance claim is worse than no mapping."""
+    def flat(name: str) -> str:
+        raw = HERE.joinpath(name).read_text(encoding="utf-8").lower()
+        return " ".join(raw.split())
+    en, fr = flat("docs/ANSSI.md"), flat("docs/fr/ANSSI.md")
+    assert "has not reviewed this tool" in en and "does not endorse" in en
+    assert "n'a pas examiné cet outil" in fr and "ne le cautionne pas" in fr
+    for phrase in ("human-approval", "chain-of-actions", "no result recorded",
+                   "in-run revocation", "requester authentication"):
+        assert phrase in en, phrase

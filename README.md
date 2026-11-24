@@ -349,6 +349,22 @@ mattered.
 before the one you are looking at, which is where root causes tend to sit. Inferring more than
 that would be guessing with a confident interface.
 
+## Someone else's requirements grid
+
+France's national cybersecurity agency published *Sécuriser un système IA agentique* on
+30 October 2026. Its principle 5 asks for "un mécanisme de filtrage déterministe et indépendant
+de l'agent" that denies by default; its principle 7 asks you to keep the logs "hors de portée des
+modifications de l'agent" so that an incident can be reconstructed as request → authorisation →
+action → result. That is this tool, described by someone who had never heard of it.
+
+[`docs/ANSSI.md`](docs/ANSSI.md) maps all seven principles onto what Indenture does — and the
+more useful half, onto what it does not: no human-approval path, no authentication of the
+requester, no check that a chain of individually-allowed actions is allowed, no result recorded,
+no in-run revocation. French version: [`docs/fr/ANSSI.md`](docs/fr/ANSSI.md).
+
+It is a self-assessment, not a certification. ANSSI has not reviewed this tool and does not
+endorse it.
+
 ## Other hosts, other providers
 
 The core knows nothing about any provider. It imports nothing outside the standard library,
