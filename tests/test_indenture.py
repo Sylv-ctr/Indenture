@@ -772,3 +772,14 @@ def test_the_anssi_mapping_states_the_five_gaps_and_claims_no_endorsement() -> N
     for phrase in ("human-approval", "chain-of-actions", "no result recorded",
                    "in-run revocation", "requester authentication"):
         assert phrase in en, phrase
+
+
+def test_the_contract_says_it_is_not_frozen() -> None:
+    """The format is the project's asset, and two logging standards are in
+    flight. A contract that reads as stable before they land invites a second
+    implementation that then has to be redone. The warning is load-bearing:
+    without it, `0.1-draft` looks like modesty rather than a statement."""
+    text = " ".join(HERE.joinpath("docs/DESIGN.md").read_text(encoding="utf-8").split())
+    assert "0.1-draft" in text
+    assert "not be frozen" in text
+    assert "24970" in text and "18229" in text

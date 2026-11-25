@@ -8,7 +8,40 @@ That separation is deliberate. The contract is the part worth keeping stable: a 
 library, a sidecar service and a hosted control plane should all agree on what a refusal
 means and on how a journal is verified.
 
-Version `0.1-draft`. Nothing here is stable until this line says otherwise.
+## Stability — read this before implementing
+
+Version `0.1-draft`. **Nothing here is stable, and it will not be frozen before two standards
+land.** If you are about to write a second implementation, that is the one thing you need from
+this page.
+
+Two documents are going to decide whether this format is reusable or has to be redone:
+
+- **ISO/IEC 24970, *AI system logging*** — status "Under publication" as of 23 November 2026,
+  with final production steps given as up to seven weeks, so it is **not purchasable yet**.
+  The CEN is taking it up as `FprEN ISO/IEC 24970`.
+- **prEN 18229-1** — logging, transparency and human oversight; covers Articles 12 to 14 of the
+  EU AI Act.
+
+The European Commission's standardisation request to CEN-CENELEC covers "record keeping through
+logging capabilities of AI systems" explicitly. Neither text has been read by the author of this
+one: they are paid standards and the first is not out. **Any alignment claim here would be
+invented.** When they are available, this contract gets checked against them, and the entry
+schema in §3 may change — field names, required fields, or how a decision is expressed.
+
+What that means in practice:
+
+- **Freezing now would be the expensive mistake.** A format published as stable in November and
+  contradicted by an ISO standard in January is a format nobody trusts twice.
+- **Build on it anyway if it solves your problem today** — but pin the version you built
+  against, and expect a migration note rather than a silent change. Journals already written stay
+  verifiable: each entry's hash covers its own fields, so adding a field never invalidates an
+  older entry (see §3.4).
+- **The two reserved fields are the stable part of the instability.** `principal` and `receipt`
+  exist precisely so that attribution and anchoring can arrive without a format break, and their
+  absence already has a defined meaning.
+
+This section is the honest version of a promise this project cannot make yet. It will be replaced
+by a stability guarantee, with a date, once there is something to align to.
 
 ---
 
