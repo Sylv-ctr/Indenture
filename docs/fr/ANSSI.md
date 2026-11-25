@@ -129,7 +129,11 @@ partielle, une pas adressée du tout.
 
 **5.1 — Un filtrage déterministe en amont de chaque outil ou ressource, indépendant de l'agent,
 que l'agent ne puisse contourner ni modifier.** Couvert par conception, avec la réserve posée en
-tête de document. L'évaluateur est déterministe : règles ordonnées, la première qui correspond
+tête de document — et cette réserve est désormais plus étroite : Claude Code documente
+`"onFailure": "block"` sur un hook, qui fait **bloquer** l'appel quand le hook échoue ou dépasse
+son délai, au lieu de le laisser passer. Il exige la v2.1.295 ou plus, et l'exemple de
+configuration livré le pose. L'échec en ouvert reste une propriété de l'hôte, mais l'hôte offre
+un interrupteur. L'évaluateur est déterministe : règles ordonnées, la première qui correspond
 décide, aucun modèle dans la boucle. C'est un processus séparé qui lit un fichier où l'agent ne
 peut pas écrire. Ce n'est **pas** incontournable : un agent qui écrit un script puis l'exécute
 est vu comme la commande qui lance le script, et l'hôte peut échouer en ouvert. Les deux limites

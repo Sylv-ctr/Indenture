@@ -122,7 +122,10 @@ partial, one is not addressed at all.
 
 **5.1 — A deterministic filter upstream of each tool or resource, independent of the agent, that
 the agent cannot bypass or modify.** Covered in design, with the caveat at the top of this
-document. The evaluator is deterministic: ordered rules, first match decides, no model in the
+document — and that caveat is now narrower than it was: Claude Code documents
+`"onFailure": "block"` on a hook, which makes a hook that fails or times out **block** the call
+instead of letting it through. It needs v2.1.295 or later, and the shipped settings example sets
+it. Fail-open remains a property of the host, but the host offers a switch. The evaluator is deterministic: ordered rules, first match decides, no model in the
 loop. It is a separate process reading a file the agent cannot write. It is **not**
 unbypassable: an agent that writes a script and then runs it is seen as the command that runs
 the script, and the host may fail open. Both limits are written in

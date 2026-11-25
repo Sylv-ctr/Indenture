@@ -17,7 +17,8 @@ Install (`.claude/settings.json`):
             "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
             "hooks": [
               {"type": "command",
-               "command": "/usr/bin/python3 examples/claude_code_hook.py claude"}
+               "command": "/usr/bin/python3 examples/claude_code_hook.py claude",
+               "onFailure": "block"}
             ]
           }
         ],
@@ -37,12 +38,17 @@ The same file serves both events; it reads `hook_event_name` to tell them
 apart. PostToolUse is optional: without it the journal records request,
 authorisation and action, but never the outcome.
 
-Give the interpreter's ABSOLUTE path, not `python`. If this hook cannot start,
-Claude Code reports the failure and runs the command anyway — it fails open —
-and since the thing that writes never started, the journal stays empty and says
-nothing about it. On Windows `python` commonly resolves to the Microsoft Store
-stub, which is not an interpreter; that is how this was discovered. Run
-`indenture doctor` after wiring this up: it is the ten-second check.
+`onFailure: "block"` is the line that matters. Without it, a PreToolUse hook
+that fails or times out renders no decision, and the call continues through the
+normal permission flow — a dead hook is not a gate. It needs Claude Code
+v2.1.295 or later.
+
+Give the interpreter's ABSOLUTE path, not `python`. On Windows `python` commonly
+resolves to the Microsoft Store stub, which is not an interpreter; that is how
+the fail-open was discovered here, before the switch above was known. Run
+`indenture doctor` after wiring this up: it is the ten-second check, and it is
+still worth running, because `onFailure` does not tell you the hook is wired to
+the right interpreter — only that a broken one blocks.
 
 The actor name is the first argument. It is passed on the command line rather
 than through an environment variable because `VAR=value command` is Unix shell

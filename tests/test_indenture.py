@@ -900,3 +900,13 @@ def test_the_absence_of_a_result_is_not_a_failure(tmp_path: Path) -> None:
     assert entries[-1]["decision"] == "allow"
     doc = " ".join(HERE.joinpath("docs/DESIGN.md").read_text(encoding="utf-8").split())
     assert "not recorded" in doc.lower()
+
+
+def test_the_documented_wiring_fails_closed() -> None:
+    """A PreToolUse hook that fails renders no decision and the call proceeds,
+    unless `onFailure: "block"` is set. Every settings snippet this project
+    ships must carry it: an example that fails open teaches fail-open, and this
+    repository's headline finding is a gate that disappeared in silence."""
+    for name in ("README.md", "examples/claude_code_hook.py"):
+        text = HERE.joinpath(name).read_text(encoding="utf-8")
+        assert '"onFailure": "block"' in text, name

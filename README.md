@@ -245,9 +245,18 @@ anyway**. That is fail-open, and it is not hypothetical: on the first real Windo
 commands ran. Nothing was written, because the thing that writes never started — so the journal
 was empty and silence meant nothing. Two consequences:
 
+- **Set `"onFailure": "block"` on the hook.** This is the actual fix, and it is documented:
+  without it a `PreToolUse` hook that fails or times out renders no decision and the call
+  continues through the normal permission flow, so a dead hook is not a gate. With it, a hook
+  that cannot run blocks the call. It needs Claude Code v2.1.295 or later — on anything older
+  the two points below are all you have.
 - Give the interpreter's **absolute path** in `settings.json`, not `python`.
 - Run `indenture doctor` after wiring it up, and again if a journal looks suspiciously quiet.
   That is the command that would have caught the above in ten seconds.
+
+Fail-open is a property of the host, not of this tool, and the host now offers a switch. Use it.
+A gate that disappears when it breaks is worse than no gate, because you will believe you have
+one.
 
 The same trap has a second floor. Unwatched commands are deliberately not journaled, so a
 session where the agent only read files leaves nothing behind — and *nothing behind* is exactly
@@ -282,11 +291,21 @@ Then in `.claude/settings.json`:
   "hooks": {
     "PreToolUse": [
       {"matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit", "hooks": [{"type": "command",
+        "command": "/usr/bin/python3 examples/claude_code_hook.py claude",
+        "onFailure": "block"}]}
+    ],
+    "PostToolUse": [
+      {"matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit", "hooks": [{"type": "command",
         "command": "/usr/bin/python3 examples/claude_code_hook.py claude"}]}
     ]
   }
 }
 ```
+
+`onFailure: "block"` is the one line that makes this a gate rather than a suggestion; see
+"Read this before you trust it" above. `PostToolUse` is the same file again — it reads
+`hook_event_name` to tell the two apart — and it records the outcome. Leave it out and the
+journal answers one question fewer.
 
 The actor is the argument. It is passed on the command line rather than through an environment
 variable because `VAR=value command` is Unix shell syntax — on Windows it is not valid, and the
