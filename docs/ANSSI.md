@@ -15,7 +15,7 @@ with and which it cannot touch.
 **What this document is not.** It is not a certification, an audit, an attestation, or any form
 of compliance claim. ANSSI has not reviewed this tool, has not reviewed this document, and does
 not endorse it. The verdicts below are a self-assessment by the tool's author, verified against
-the code at version 0.1.2 and not against the README. Quotations from the guide are short, in
+the code at version 0.1.3 and not against the README. Quotations from the guide are short, in
 French, and attributed; read the PDF rather than trusting this summary.
 
 **And one thing to settle before reading any of it.** Principle 5 asks for a filter "the agent
@@ -38,7 +38,7 @@ No principle is covered end to end. Two are outside what a tool of this kind can
 | 4 · Separate and compartmentalise environments | **Out of scope**, one requirement contributed |
 | 5 · Base authorisation on deterministic control | **Largely covered — two gaps, one of them structural** |
 | 6 · Limit an agentic system's impact | **Partial** |
-| 7 · Demonstrate and maintain control | **One requirement covered well, the rest not** |
+| 7 · Demonstrate and maintain control | **One requirement covered, now including the fourth link; the rest not** |
 
 ---
 
@@ -209,11 +209,23 @@ Out of the agent's reach: since 0.1.2, yes, for the obvious paths. Integrity: ea
 covers its own fields and the previous hash, and `verify` recomputes the chain. Reconstruction:
 `log`, `why`, `replay` and `blame` rebuild the sequence.
 
-**But the guide asks for four links and the journal records three.** Request, authorisation and
-action are there. **Result is not.** An entry says a handoff was allowed under rule *n* at
-14:32; it does not say whether the action then succeeded, failed, or did something unexpected.
-A `PreToolUse` hook is asked before the fact and never learns the outcome. Closing that link
-means recording after execution too, and nothing in the tool does that today.
+**The guide asks for four links. As of 0.1.3 the journal records four** — this gap was found by
+writing this document and closed two days later. A `PreToolUse` hook is asked before the fact
+and cannot know the outcome, so the fourth link comes from a second hook: `PostToolUse` appends
+a separate `result` entry joined to the decision by the host's `tool_use_id`. Separate, because
+the journal is append-only and an entry whose bytes change is an entry whose hash lied.
+
+**Three limits, and they matter more than the feature.** `tool_use_id` needs Claude Code
+v2.1.257 or later; without it there is nothing to join on, and the implementation records the
+result as `uncorrelated` rather than guessing, because an outcome attached to the wrong decision
+is worse than one attached to none. `PostToolUse` fires after a tool *succeeds*, so a failure may
+produce no entry at all. And an unwatched call was never journaled going in, so there is nothing
+to close coming out.
+
+Therefore, and this is written into the contract rather than left to be discovered: **an entry
+with no result means the outcome was not recorded. It never means the action failed, and never
+that it succeeded.** Same rule as `principal` and `receipt`, for the same reason — in an audit
+tool, a silence nobody defined is a defect. See [`DESIGN.md` §3.5](DESIGN.md).
 
 Two integrity limits are also written rather than glossed: **truncating the tail of the journal
 leaves a valid chain** — a shorter chain still verifies, so only a third-party receipt will
@@ -232,16 +244,19 @@ which is a start.
 
 ## The honest ledger
 
-Five things the guide asks for and this tool does not do. None of them is hidden anywhere else
+Four things the guide asks for and this tool does not do. None of them is hidden anywhere else
 in the documentation, and each is an open design question rather than a roadmap promise.
 
 1. **No human-approval path** (principle 3). Yes or no, never "wait".
 2. **No requester authentication** (principle 5.2). An actor is a string; `principal` is
    reserved and unwritten.
 3. **No chain-of-actions check** (principle 5.3). Each call is judged alone.
-4. **No result recorded** (principle 7.4). Request, authorisation, action — not outcome.
-5. **No in-run revocation** (principle 6). Editing the policy catches the next call, not the
+4. **No in-run revocation** (principle 6). Editing the policy catches the next call, not the
    current run.
+
+*Closed on 25 November: the result of an action was not recorded (principle 7.4). It is now, in
+0.1.3, with its three limits written down — see principle 7 above. The gap was found by writing
+this document, which is the only argument this page needs for existing.*
 
 And three limits that are properties of the approach rather than missing features: enforcement
 belongs to the host and hosts can fail open; a script written and then executed is not seen for
@@ -260,5 +275,5 @@ and say which, and what breaks for you.
 
 ---
 
-*Written on 24 November 2026 against Indenture 0.1.2 and ANSSI V1.0 (10/26). The guide may be
+*Written on 24 November 2026 against Indenture 0.1.3 and ANSSI V1.0 (10/26). The guide may be
 revised; this document is not updated automatically. Read the PDF.*

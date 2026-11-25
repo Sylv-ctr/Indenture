@@ -275,7 +275,8 @@ def test_reason_is_on_stdout_so_the_model_can_read_it(tmp_path: Path) -> None:
 # The hook — the claim that enforcement is real
 # --------------------------------------------------------------------------- #
 def _hook(tmp_path: Path, command: str, actor: str = "backend",
-          by_argv: bool = False, session: str = "s-1") -> subprocess.CompletedProcess:
+          by_argv: bool = False, session: str = "s-1",
+          ref: str = "toolu_test") -> subprocess.CompletedProcess:
     """Run the hook. by_argv passes the actor as a command-line argument, which
     is the portable path: `VAR=value command` is not valid on Windows."""
     argv = [sys.executable, str(HERE / "examples" / "claude_code_hook.py")]
@@ -286,6 +287,7 @@ def _hook(tmp_path: Path, command: str, actor: str = "backend",
         env["INDENTURE_ACTOR"] = actor
     return subprocess.run(
         argv, input=json.dumps({"tool_name": "Bash", "session_id": session,
+                                "tool_use_id": ref,
                                 "tool_input": {"command": command}}),
         capture_output=True, text=True, env=env,
     )
@@ -750,28 +752,39 @@ def test_the_anssi_mapping_names_the_current_version() -> None:
     """A compliance-adjacent document that claims to describe version X while the
     code is at version Y is the defect this project keeps finding: an assertion
     copied forward and never re-checked. If this fails, re-verify the mapping
-    against the code before bumping the number."""
-    import re
+    against the code before bumping the number.
+
+    The first version of this test asserted that NO other version string
+    appeared, which was wrong: it would have forced deleting true sentences like
+    "since 0.1.2 the hook refuses writes to the policy". A test that pushes you
+    to erase a fact is a worse defect than the one it guards against."""
     for name in ("docs/ANSSI.md", "docs/fr/ANSSI.md"):
-        text = HERE.joinpath(name).read_text(encoding="utf-8")
-        claimed = set(re.findall(r"0\.\d+\.\d+", text))
-        assert claimed == {__version__}, (
-            f"{name} mentions {sorted(claimed)} but the code is {__version__}")
+        text = " ".join(
+            HERE.joinpath(name).read_text(encoding="utf-8").lower().split())
+        assert f"indenture {__version__}" in text, (
+            f"{name} does not say it was verified against {__version__}")
 
 
-def test_the_anssi_mapping_states_the_five_gaps_and_claims_no_endorsement() -> None:
+def test_the_anssi_mapping_states_its_gaps_and_claims_no_endorsement() -> None:
     """The useful half of that document is what the tool does NOT do, and the
     sentence that keeps it honest. Both are load-bearing: a mapping that reads as
-    a compliance claim is worse than no mapping."""
+    a compliance claim is worse than no mapping.
+
+    The list shrinks as gaps close — one did, two days after being written down
+    — so this checks the four that remain and that the closed one is recorded as
+    closed rather than quietly deleted."""
     def flat(name: str) -> str:
         raw = HERE.joinpath(name).read_text(encoding="utf-8").lower()
         return " ".join(raw.split())
     en, fr = flat("docs/ANSSI.md"), flat("docs/fr/ANSSI.md")
     assert "has not reviewed this tool" in en and "does not endorse" in en
     assert "n'a pas examiné cet outil" in fr and "ne le cautionne pas" in fr
-    for phrase in ("human-approval", "chain-of-actions", "no result recorded",
-                   "in-run revocation", "requester authentication"):
+    for phrase in ("human-approval", "chain-of-actions", "in-run revocation",
+                   "requester authentication"):
         assert phrase in en, phrase
+    # the fourth link, closed in 0.1.3, with its history kept
+    assert "closed on 25 november" in en
+    assert "comblé le 25 novembre" in fr
 
 
 def test_the_contract_says_it_is_not_frozen() -> None:
@@ -783,3 +796,107 @@ def test_the_contract_says_it_is_not_frozen() -> None:
     assert "0.1-draft" in text
     assert "not be frozen" in text
     assert "24970" in text and "18229" in text
+
+
+# --------------------------------------------------------------------------- #
+# the fourth link — ANSSI principle 7 asks for request, authorisation, action
+# AND result; the journal had three
+# --------------------------------------------------------------------------- #
+def _post(tmp_path: Path, ref: str, response, actor: str = "claude") -> subprocess.CompletedProcess:
+    import os as _os
+    env = {**_os.environ, "INDENTURE_ACTOR": actor,
+           "INDENTURE_DIR": str(tmp_path / ".indenture")}
+    return subprocess.run(
+        [sys.executable, str(HERE / "examples" / "claude_code_hook.py")],
+        input=json.dumps({"hook_event_name": "PostToolUse", "tool_name": "Bash",
+                          "session_id": "s-1", "tool_use_id": ref,
+                          "tool_input": {"command": "x"}, "tool_response": response}),
+        capture_output=True, text=True, cwd=str(tmp_path), env=env)
+
+
+def test_a_result_is_a_new_entry_never_a_change_to_the_old_one(tmp_path: Path) -> None:
+    """An entry whose bytes change is an entry whose hash lied."""
+    _cli(tmp_path, "init")
+    _cli(tmp_path, "check", "backend", "qa", "--kind", "work", "--ref", "r1", "--quiet")
+    ind = Indenture(tmp_path / ".indenture")
+    before = ind.entries()[-1]
+    _cli(tmp_path, "result", "--ref", "r1", "--detail", "fine")
+    after = Indenture(tmp_path / ".indenture").entries()
+    assert after[-2] == before, "the decision entry was modified"
+    assert after[-1]["event"] == "result" and after[-1]["of"] == before["seq"]
+    assert Indenture(tmp_path / ".indenture").verify()[0]
+
+
+def test_a_result_with_no_matching_decision_is_written_not_guessed(tmp_path: Path) -> None:
+    """An outcome attached to the wrong decision is worse than one attached to
+    none, so `of` is null and the entry says so."""
+    _cli(tmp_path, "init")
+    _cli(tmp_path, "result", "--ref", "nobody", "--failed")
+    e = Indenture(tmp_path / ".indenture").entries()[-1]
+    assert e["of"] is None and e["uncorrelated"] is True and e["ok"] is False
+
+
+def _solo_dev_policy(tmp_path: Path) -> None:
+    """The policy `init` writes refuses everything towards `deploy`; the bundled
+    solo-dev one allows `git push` because a revert undoes it. The tests below
+    need a watched call that is *allowed*, to prove the loop closes on success
+    and not only on refusal."""
+    root = tmp_path / ".indenture"
+    root.mkdir(exist_ok=True)
+    (root / "policy.json").write_text(
+        (HERE / "examples" / "policy-claude-code.json").read_text())
+    (root / "journal.jsonl").touch()
+
+
+def test_the_hook_closes_the_loop_on_a_watched_call(tmp_path: Path) -> None:
+    _solo_dev_policy(tmp_path)
+    assert _hook(tmp_path, "git push", actor="claude", by_argv=True).returncode == 0
+    ind = Indenture(tmp_path / ".indenture")
+    ref = [e for e in ind.entries() if e.get("event") == "handoff"][-1]["ref"]
+    assert ref, "the decision carries no correlation ref"
+    assert _post(tmp_path, ref, {"exit_code": 0}).returncode == 0
+    last = Indenture(tmp_path / ".indenture").entries()[-1]
+    assert last["event"] == "result" and last["ok"] is True
+
+
+def test_the_hook_records_a_failure_when_the_tool_reports_one(tmp_path: Path) -> None:
+    _solo_dev_policy(tmp_path)
+    _hook(tmp_path, "git push", actor="claude", by_argv=True)
+    ind = Indenture(tmp_path / ".indenture")
+    ref = [e for e in ind.entries() if e.get("event") == "handoff"][-1]["ref"]
+    _post(tmp_path, ref, {"exit_code": 128, "stderr": "rejected"})
+    last = Indenture(tmp_path / ".indenture").entries()[-1]
+    assert last["ok"] is False and "128" in last["detail"]
+
+
+def test_an_unwatched_call_produces_no_dangling_result(tmp_path: Path) -> None:
+    """Recording a result for every unwatched read is the noise that buries the
+    signal — the same reasoning as not journaling unwatched commands."""
+    _cli(tmp_path, "init")
+    before = len(Indenture(tmp_path / ".indenture").entries())
+    assert _post(tmp_path, "toolu_never_seen", {"exit_code": 0}).returncode == 0
+    assert len(Indenture(tmp_path / ".indenture").entries()) == before
+
+
+def test_an_unreadable_tool_response_is_not_reported_as_a_failure(tmp_path: Path) -> None:
+    """PostToolUse is only called after success, so inventing a failure from a
+    shape we did not parse would be worse than admitting we did not parse it."""
+    _solo_dev_policy(tmp_path)
+    _hook(tmp_path, "git push", actor="claude", by_argv=True)
+    ind = Indenture(tmp_path / ".indenture")
+    ref = [e for e in ind.entries() if e.get("event") == "handoff"][-1]["ref"]
+    _post(tmp_path, ref, 12345)
+    last = Indenture(tmp_path / ".indenture").entries()[-1]
+    assert last["ok"] is True and "not readable" in last["detail"]
+
+
+def test_the_absence_of_a_result_is_not_a_failure(tmp_path: Path) -> None:
+    """The host decides whether to call us afterwards at all. A decision with no
+    result entry means the outcome was NOT RECORDED — never that it failed."""
+    _cli(tmp_path, "init")
+    _cli(tmp_path, "check", "backend", "qa", "--kind", "work", "--ref", "r9", "--quiet")
+    entries = Indenture(tmp_path / ".indenture").entries()
+    assert not [e for e in entries if e.get("event") == "result"]
+    assert entries[-1]["decision"] == "allow"
+    doc = " ".join(HERE.joinpath("docs/DESIGN.md").read_text(encoding="utf-8").split())
+    assert "not recorded" in doc.lower()

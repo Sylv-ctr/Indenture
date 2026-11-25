@@ -20,9 +20,22 @@ Install (`.claude/settings.json`):
                "command": "/usr/bin/python3 examples/claude_code_hook.py claude"}
             ]
           }
+        ],
+        "PostToolUse": [
+          {
+            "matcher": "Bash|Edit|Write|MultiEdit|NotebookEdit",
+            "hooks": [
+              {"type": "command",
+               "command": "/usr/bin/python3 examples/claude_code_hook.py claude"}
+            ]
+          }
         ]
       }
     }
+
+The same file serves both events; it reads `hook_event_name` to tell them
+apart. PostToolUse is optional: without it the journal records request,
+authorisation and action, but never the outcome.
 
 Give the interpreter's ABSOLUTE path, not `python`. If this hook cannot start,
 Claude Code reports the failure and runs the command anyway — it fails open —
@@ -205,6 +218,76 @@ def classify(command: str) -> tuple[str, str] | None:
     return None
 
 
+def record_outcome(event: dict) -> int:
+    """Close the fourth link: request, authorisation, action — and result.
+
+    ANSSI's principle 7 asks that an incident reconstruct as
+    `demande → autorisation → action → résultat`. A PreToolUse hook is
+    asked before the fact and never learns the outcome, so the journal had
+    three links out of four. This is the fourth, and it is a separate
+    entry: the journal is append-only.
+
+    Three limits, all written rather than discovered later.
+
+    `tool_use_id` is what joins a result to its decision, and it needs
+    Claude Code v2.1.257 or later. Without it there is nothing to join on,
+    so the result is recorded `uncorrelated` rather than guessed at — an
+    outcome attached to the wrong decision is worse than one attached to
+    none.
+
+    PostToolUse fires after a tool *succeeds*. A failure may therefore
+    produce no entry at all, which is why **the absence of a result never
+    means the action failed** — it means the outcome was not recorded. Same
+    discipline as `principal` and `receipt`.
+
+    And only watched calls have a decision to complete. An unwatched `ls`
+    is not journaled going in, so there is nothing to close coming out.
+    """
+    ref = str(event.get("tool_use_id") or "")
+    actor = os.environ.get("INDENTURE_ACTOR") or (
+        sys.argv[1] if len(sys.argv) > 1 else "unknown")
+    ind = Indenture(os.environ.get("INDENTURE_DIR", ".indenture"))
+
+    of = ind.find_by_ref(ref)
+    if of is None and ref:
+        # Nothing was journaled for this call, so it was not under policy.
+        # Recording a dangling result for every unwatched read is the noise
+        # that buries the signal.
+        return 0
+
+    response = event.get("tool_response")
+    ok, detail = outcome_of(response)
+    try:
+        ind.record_result(of, ok=ok, detail=detail, by=actor)
+    except OSError:
+        # Diagnostics must never become a new way for the gate to fail.
+        pass
+    return 0
+
+
+def outcome_of(response: object) -> tuple:
+    """Read success out of a tool_response, whose shape varies by tool.
+
+    Edit and Write return a `success` flag; Bash returns stdout, stderr and
+    an exit code; some tools return a bare string. Anything we cannot read
+    is reported as succeeded-with-an-unreadable-shape rather than as a
+    failure, because PostToolUse is only called after success and inventing
+    a failure would be worse than admitting we did not parse it.
+    """
+    if isinstance(response, dict):
+        for key in ("success", "ok"):
+            if key in response:
+                return bool(response[key]), str(response.get("error", ""))[:500]
+        code = response.get("exit_code", response.get("exitCode"))
+        if isinstance(code, int):
+            return code == 0, f"exit {code}"
+        err = response.get("stderr") or response.get("error") or ""
+        return True, str(err)[:500]
+    if isinstance(response, str):
+        return True, response[:500]
+    return True, "tool_response not readable"
+
+
 def main() -> int:
     try:
         event = json.load(sys.stdin)
@@ -213,6 +296,9 @@ def main() -> int:
         # also not a policy decision, so it is not exit 2.
         print("indenture: could not parse hook input", file=sys.stderr)
         return 1
+
+    if str(event.get("hook_event_name") or "PreToolUse") == "PostToolUse":
+        return record_outcome(event)
 
     tool = str(event.get("tool_name") or "Bash")
     tool_input = event.get("tool_input") or {}
@@ -243,7 +329,8 @@ def main() -> int:
             return 0
         (target, kind), payload = verdict, {"command": command}
 
-    decision = ind.authorize(actor, target, kind=kind, payload=payload)
+    decision = ind.authorize(actor, target, kind=kind, payload=payload,
+                             ref=str(event.get("tool_use_id") or ""))
 
     if decision.allowed:
         return 0

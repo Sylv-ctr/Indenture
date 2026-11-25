@@ -137,7 +137,7 @@ form in §3.2 is.
   "ts": "2026-11-16T09:38:44+00:00",
   "prev": "<sha256 of the previous entry>",
   "hash": "<sha256 of this entry without the hash field>",
-  "event": "handoff",              // handoff | state | note
+  "event": "handoff",              // handoff | state | note | result
   "run": "",                       // optional correlation id
 
   // event = handoff
@@ -145,6 +145,13 @@ form in §3.2 is.
   "from": "backend", "to": "deploy", "kind": "work",
   "from_lane": "contained", "to_lane": "irreversible",
   "rule": "rules[0]", "reason": "irreversible lane: …",
+  "ref": "toolu_01ABC",            // host-supplied id a later result joins on; "" if none
+
+  // event = result — see §3.5
+  "of": 7,                         // seq of the decision this completes; null = uncorrelated
+  "ok": true,
+  "detail": "exit 0",
+  "uncorrelated": true,            // present only when "of" is null
 
   // event = state
   "key": "contracts.md", "by": "data", "by_lane": "wide",
@@ -223,7 +230,43 @@ What a late addition breaks is the *meaning* of an absent field, which is what t
 fixes. Recorded here because the opposite was asserted during design and turned out to be
 wrong.
 
-### 3.5 `verify`
+### 3.5 `result` — the fourth link
+
+A `handoff` records a request and an authorisation. It does **not** record how the action turned
+out: an authorisation is asked for before the fact, so whatever answers it cannot know the
+outcome. ANSSI's guide on agentic AI asks, at its principle 7, that an incident reconstruct as
+*demande → autorisation → action → résultat*. Three links out of four.
+
+A `result` entry is the fourth. It is a **separate entry**, never a modification of the one it
+refers to: an entry whose bytes change is an entry whose hash lied.
+
+| Field | Meaning |
+|---|---|
+| `of` | seq of the decision this completes. **`null` means the result could not be joined to a decision** |
+| `ok` | whether the action succeeded |
+| `detail` | short, free-form; an exit code, an error line |
+| `uncorrelated` | present only when `of` is null |
+
+**Joining is by `ref`, and it is the host's job.** A result arrives from a different process than
+the decision it belongs to, so the two are joined by an id the host supplies — in Claude Code,
+`tool_use_id`. When there is no ref to join on, the implementation **must not guess**: an outcome
+attached to the wrong decision is worse than one attached to none.
+
+**What the absence of a result does NOT mean.** It does not mean the action failed. Three
+different things produce no entry: the host never called us afterwards, the call was never under
+policy in the first place, or the outcome was not readable. So:
+
+> An entry with no `result` means the outcome was **not recorded**. It never means the action
+> failed, and it never means the action succeeded.
+
+This is the same rule as §3.4 applies to `principal` and `receipt`, for the same reason: in an
+audit tool, a silence that cannot be interpreted is a defect, and the only cure is to define
+what the silence means before anyone has to guess.
+
+**A conformant implementation may omit `result` entirely.** The three-link journal is valid; it
+simply answers one question fewer.
+
+### 3.6 `verify`
 
 `verify` MUST detect, and MUST name the position of:
 

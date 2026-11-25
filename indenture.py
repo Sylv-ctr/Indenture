@@ -59,7 +59,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
 
 GENESIS = "0" * 64
 JOURNAL = "journal.jsonl"
@@ -114,6 +114,7 @@ except ImportError:  # pragma: no cover - Windows
 E_HANDOFF = "handoff"        # an actor passing work to another actor
 E_STATE = "state"            # an actor writing a named piece of shared state
 E_NOTE = "note"              # free-form marker (run start, human comment, ...)
+E_RESULT = "result"          # the outcome of an action an earlier entry authorized
 
 # Exit codes. The hook contract depends on these, so they are part of the public
 # surface. A policy denial is 2, never 1: Python returns 1 on an unhandled
@@ -332,7 +333,7 @@ class Indenture:
     # -- the three verbs --------------------------------------------------- #
     def authorize(self, src: str, dst: str, kind: str = "work",
                   payload: Any = None, store_payload: bool = False,
-                  run: str = "") -> Decision:
+                  run: str = "", ref: str = "") -> Decision:
         """Decide whether src may hand `kind` to dst, and journal the decision.
 
         Denials are journaled too. The question "what did this system refuse to
@@ -347,7 +348,7 @@ class Indenture:
             "decision": "allow" if d.allowed else "deny",
             "from": src, "to": dst, "kind": kind,
             "from_lane": self.policy.lane(src), "to_lane": self.policy.lane(dst),
-            "rule": d.rule, "reason": d.reason, "run": run,
+            "rule": d.rule, "reason": d.reason, "run": run, "ref": ref,
             **self._payload_fields(payload, store_payload),
         })
         d.seq = entry["seq"]
@@ -372,6 +373,49 @@ class Indenture:
 
     def note(self, text: str, by: str = "human", run: str = "") -> dict:
         return self._append({"event": E_NOTE, "by": by, "text": text[:2000], "run": run})
+
+    def find_by_ref(self, ref: str) -> int | None:
+        """The seq of the most recent handoff carrying this correlation ref.
+
+        A result arrives from a different process than the decision it belongs
+        to, so the two are joined by a ref the host supplies - in Claude Code,
+        `tool_use_id`. Most recent wins: a ref should be unique, and if it is
+        not, the latest is the one being completed.
+        """
+        if not ref:
+            return None
+        found = None
+        for e in self.entries():
+            if e.get("event") == E_HANDOFF and e.get("ref") == ref:
+                found = e.get("seq")
+        return found
+
+    def record_result(self, of: int | None, ok: bool, detail: str = "",
+                      by: str = "", run: str = "") -> dict:
+        """Record how an authorized action turned out.
+
+        A separate entry, never a change to the one it refers to: the journal is
+        append-only, and an entry whose bytes change is an entry whose hash
+        lied. `of` is the seq of the decision; **None means the result could not
+        be joined to one**, which is a fact worth writing rather than a reason
+        to drop the entry.
+
+        Like `write_state`, this records and does not refuse. The action has
+        already happened; refusing to write it down would only remove evidence.
+
+        **What the absence of a result entry does NOT mean.** It does not mean
+        the action failed. The host decides whether to call us afterwards at
+        all: Claude Code's PostToolUse fires after a tool *succeeds*, so a
+        failure may produce nothing, and an older host, a missing hook or a dead
+        interpreter also produce nothing. An entry with no result means the
+        outcome was **not recorded** - see `docs/DESIGN.md` §3.4 for the same
+        rule applied to `principal` and `receipt`.
+        """
+        body = {"event": E_RESULT, "of": of, "ok": bool(ok),
+                "detail": str(detail)[:500], "by": by, "run": run}
+        if of is None:
+            body["uncorrelated"] = True
+        return self._append(body)
 
     # -- integrity --------------------------------------------------------- #
     def verify(self) -> tuple:
@@ -495,6 +539,12 @@ def _c(entry: dict) -> str:
                 f"  ({entry.get('payload_digest','')}){flag}")
     if ev == E_NOTE:
         return f"{seq:>4} {ts} NOTE  {entry.get('by','?')}: {entry.get('text','')[:90]}"
+    if ev == E_RESULT:
+        of = entry.get("of")
+        target = f"#{of}" if of is not None else "[UNCORRELATED]"
+        mark = "OK   " if entry.get("ok") else "FAIL "
+        return (f"{seq:>4} {ts} {mark} result of {target}"
+                + (f"  {entry.get('detail','')[:80]}" if entry.get("detail") else ""))
     return f"{seq:>4} {ts} {ev}"
 
 
@@ -609,11 +659,22 @@ def main(argv: list | None = None) -> int:
     s.add_argument("--payload", default="", help="JSON string, or @file")
     s.add_argument("--store", action="store_true", help="store the payload, not just its digest")
     s.add_argument("--run", default="")
+    s.add_argument("--ref", default="",
+                   help="correlation id, so a later `result` can be joined to this decision")
     s.add_argument("--quiet", action="store_true")
 
     s = sub.add_parser("write", help="record a write to shared state")
     s.add_argument("key"); s.add_argument("--by", required=True)
     s.add_argument("--value", default=""); s.add_argument("--store", action="store_true")
+    s.add_argument("--run", default="")
+
+    s = sub.add_parser("result", help="record how an authorized action turned out")
+    g = s.add_mutually_exclusive_group(required=True)
+    g.add_argument("--of", type=int, help="seq of the decision this completes")
+    g.add_argument("--ref", help="correlation id of the decision this completes")
+    s.add_argument("--failed", action="store_true", help="the action did not succeed")
+    s.add_argument("--detail", default="")
+    s.add_argument("--by", default="")
     s.add_argument("--run", default="")
 
     s = sub.add_parser("note", help="append a free-form marker")
@@ -661,7 +722,7 @@ def main(argv: list | None = None) -> int:
 
     if a.cmd == "check":
         d = c.authorize(a.src, a.dst, a.kind, payload_of(a.payload),
-                        store_payload=a.store, run=a.run)
+                        store_payload=a.store, run=a.run, ref=a.ref)
         if not a.quiet:
             print(f"{'ALLOW' if d.allowed else 'DENY'}  {a.src} -> {a.dst} [{a.kind}]"
                   f"  ({d.rule})  {d.reason}")
@@ -671,6 +732,14 @@ def main(argv: list | None = None) -> int:
         e = c.write_state(a.key, payload_of(a.value), by=a.by,
                           run=a.run, store_payload=a.store)
         print(f"recorded #{e['seq']} {a.by} -> {a.key} ({e['payload_digest']})")
+        return 0
+
+    if a.cmd == "result":
+        of = a.of if a.of is not None else c.find_by_ref(a.ref)
+        e = c.record_result(of, ok=not a.failed, detail=a.detail, by=a.by, run=a.run)
+        where = f"#{of}" if of is not None else "no matching decision"
+        print(f"recorded #{e['seq']} result of {where}"
+              f"  ({'ok' if not a.failed else 'failed'})")
         return 0
 
     if a.cmd == "note":

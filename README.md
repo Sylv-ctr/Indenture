@@ -359,8 +359,14 @@ action → result. That is this tool, described by someone who had never heard o
 
 [`docs/ANSSI.md`](docs/ANSSI.md) maps all seven principles onto what Indenture does — and the
 more useful half, onto what it does not: no human-approval path, no authentication of the
-requester, no check that a chain of individually-allowed actions is allowed, no result recorded,
-no in-run revocation. French version: [`docs/fr/ANSSI.md`](docs/fr/ANSSI.md).
+requester, no check that a chain of individually-allowed actions is allowed, no in-run
+revocation. French version: [`docs/fr/ANSSI.md`](docs/fr/ANSSI.md).
+
+Writing it found a fifth gap and closed it. The guide asks that an incident reconstruct as
+*request → authorisation → action → result*, and the journal recorded three of those four: a
+`PreToolUse` hook is asked before the fact and cannot know the outcome. Since 0.1.3 a
+`PostToolUse` hook appends a `result` entry joined to the decision. An entry with no result means
+the outcome was **not recorded** — never that the action failed.
 
 It is a self-assessment, not a certification. ANSSI has not reviewed this tool and does not
 endorse it.

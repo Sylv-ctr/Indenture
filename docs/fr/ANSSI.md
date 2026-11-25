@@ -16,7 +16,7 @@ aide à cocher et lesquelles il ne touche pas du tout.
 **Ce que ce document n'est pas.** Ce n'est ni une certification, ni un audit, ni une attestation,
 ni une revendication de conformité. **L'ANSSI n'a pas examiné cet outil, n'a pas relu ce document
 et ne le cautionne pas.** Les verdicts ci-dessous sont une auto-évaluation de l'auteur de
-l'outil, vérifiée contre le code en version 0.1.2 — pas contre le README. Les citations du guide
+l'outil, vérifiée contre le code en version 0.1.3 — pas contre le README. Les citations du guide
 sont courtes et attribuées ; lisez le PDF plutôt que de faire confiance à ce résumé.
 
 **Et une chose à régler avant de lire le reste.** Le principe 5 demande un filtrage que l'agent
@@ -41,7 +41,7 @@ qu'un outil de ce type peut adresser.
 | 4 · Séparer et cloisonner les environnements | **Hors périmètre**, une exigence contribuée |
 | 5 · Fonder l'autorisation sur un contrôle déterministe | **Largement couvert — deux manques, dont un structurel** |
 | 6 · Limiter l'impact d'un système agentique | **Partiel** |
-| 7 · Démontrer et maintenir la maîtrise du système | **Une exigence bien couverte, les autres non** |
+| 7 · Démontrer et maintenir la maîtrise du système | **Une exigence couverte, désormais quatrième maillon inclus ; les autres non** |
 
 ---
 
@@ -221,12 +221,24 @@ Hors de portée de l'agent : depuis la 0.1.2, oui, pour les chemins évidents. I
 l'empreinte de chaque entrée couvre ses propres champs et l'empreinte précédente, et `verify`
 recalcule la chaîne. Reconstitution : `log`, `why`, `replay` et `blame` rebâtissent la séquence.
 
-**Mais le guide demande quatre maillons et le journal en enregistre trois.** La demande,
-l'autorisation et l'action y sont. **Le résultat n'y est pas.** Une entrée dit qu'une
-transmission a été autorisée par la règle *n* à 14 h 32 ; elle ne dit pas si l'action a ensuite
-réussi, échoué, ou fait autre chose. Un hook `PreToolUse` est interrogé *avant* et n'apprend
-jamais l'issue. Fermer ce maillon suppose d'enregistrer aussi après exécution, et rien dans
-l'outil ne le fait aujourd'hui.
+**Le guide demande quatre maillons. Depuis la 0.1.3, le journal en enregistre quatre** — ce
+manque a été trouvé en écrivant ce document et comblé deux jours plus tard. Un hook `PreToolUse`
+est interrogé *avant* et ne peut pas connaître l'issue, donc le quatrième maillon vient d'un
+second hook : `PostToolUse` ajoute une entrée `result` distincte, rattachée à la décision par le
+`tool_use_id` fourni par l'hôte. Distincte, parce que le journal est en ajout seul et qu'une
+entrée dont les octets changent est une entrée dont l'empreinte a menti.
+
+**Trois limites, et elles comptent plus que la fonctionnalité.** `tool_use_id` exige Claude Code
+v2.1.257 ou plus ; sans lui il n'y a rien sur quoi rattacher, et l'implémentation enregistre le
+résultat comme `uncorrelated` au lieu de deviner — une issue rattachée à la mauvaise décision est
+pire qu'une issue rattachée à aucune. `PostToolUse` ne se déclenche qu'après une exécution
+*réussie*, donc un échec peut ne produire aucune entrée. Et un appel non surveillé n'a pas été
+journalisé à l'entrée, donc il n'y a rien à fermer à la sortie.
+
+Donc, et c'est écrit dans le contrat plutôt que laissé à découvrir : **une entrée sans résultat
+signifie que l'issue n'a pas été enregistrée. Jamais que l'action a échoué, jamais qu'elle a
+réussi.** Même règle que `principal` et `receipt`, pour la même raison — dans un outil d'audit,
+un silence que personne n'a défini est un défaut. Voir [`DESIGN.md` §3.5](../DESIGN.md).
 
 Deux limites d'intégrité sont également écrites plutôt qu'escamotées : **couper la fin du journal
 laisse une chaîne valide** — une chaîne plus courte se vérifie quand même, donc seul un reçu
@@ -245,17 +257,21 @@ vous disent qui a changé une règle et quand, ce qui est un début.
 
 ## Le bilan honnête
 
-Cinq choses que le guide demande et que cet outil ne fait pas. Aucune n'est cachée ailleurs dans
-la documentation, et chacune est une question de conception ouverte plutôt qu'une promesse de
-feuille de route.
+Quatre choses que le guide demande et que cet outil ne fait pas. Aucune n'est cachée ailleurs
+dans la documentation, et chacune est une question de conception ouverte plutôt qu'une promesse
+de feuille de route.
 
 1. **Aucune voie d'approbation humaine** (principe 3). Oui ou non, jamais « attends ».
 2. **Aucune authentification du demandeur** (principe 5.2). Un acteur est une chaîne ;
    `principal` est réservé et non écrit.
 3. **Aucun contrôle d'enchaînement** (principe 5.3). Chaque appel est jugé seul.
-4. **Aucun résultat enregistré** (principe 7.4). Demande, autorisation, action — pas l'issue.
-5. **Aucune révocation en cours de run** (principe 6). Éditer la politique attrape l'appel
+4. **Aucune révocation en cours de run** (principe 6). Éditer la politique attrape l'appel
    suivant, pas le run en cours.
+
+*Comblé le 25 novembre : le résultat d'une action n'était pas enregistré (principe 7.4). Il l'est
+depuis la 0.1.3, avec ses trois limites écrites — voir le principe 7 ci-dessus. Le manque a été
+trouvé en écrivant ce document, ce qui est le seul argument dont cette page a besoin pour
+exister.*
 
 Et trois limites qui sont des propriétés de l'approche plutôt que des fonctions manquantes :
 l'application appartient à l'hôte et un hôte peut échouer en ouvert ; un script écrit puis
@@ -275,5 +291,5 @@ casse chez vous.
 
 ---
 
-*Écrit le 24 novembre 2026 contre Indenture 0.1.2 et le guide ANSSI V1.0 (10/26). Le guide peut
+*Écrit le 24 novembre 2026 contre Indenture 0.1.3 et le guide ANSSI V1.0 (10/26). Le guide peut
 être révisé ; ce document n'est pas mis à jour automatiquement. Lisez le PDF.*
